@@ -1,6 +1,6 @@
-= Compressed Binary Serial Object Notation
+# Compressed Binary Serial Object Notation
 
-== Format
+## Format
 
 ```
 stream                  = +(field | keep-alive);
@@ -57,7 +57,7 @@ utf8-string             = 0x7f *0x01-0xff:character 0x00;
 copy-operator           = 0x80-0xff:distance;
 ```
 
-== Initial Compression Dictionary
+## Initial Compression Dictionary
 
  | Distance | Type         |                Value |
  | -------- | ------------ | -------------------- |
@@ -89,13 +89,13 @@ copy-operator           = 0x80-0xff:distance;
  |       25 | Integer      | 18446744073709551616 |
 
 
-== Fields
+## Fields
 
-=== Integers
+### Integers
 Integers are encoded as signed two's compliment little endian. Integers must
 be encoded in the smallest amount of space possible.
 
-=== Strings
+### Strings
 When all characters code points in a string can be represented with 7 bits and
 the first character is printable, then the string is stop-bit encoded.
 The bit-7 is the stop-bit, denoting that it is the last character of a string.
@@ -105,20 +105,20 @@ character.
 If a string contains characters that cannot be represented in 7 bits or
 is a empty string. then the string is encoded as UTF-8 ending in a NUL character.
 
-=== Binary float
+### Binary float
 Binary floating point numbers should be encoded using the smallest amount of space
 without losing precission.
 
-=== Decimal float
+### Decimal float
 Decimal floating point numbers should be encoded using the smallest amount of space
 without losing precission.
 
-=== Byte array
+### Byte array
 A byte array contains the length of the opaque data following it. The length is
 encoded as a unsigned little endian integer. Always encode the length in the
 smallest amount of bytes needed.
 
-=== Custom-value
+### Custom-value
 A custom-value is like a byte-array, but includes the name of the type that is being
 (de)serialized.
 
@@ -126,23 +126,23 @@ A custom-value contains the length of the data following it. The length is
 encoded as a unsigned little endian integer. Always encode the length in the
 smallest amount of bytes needed.
 
-=== None
+### None
 A None value and type.
 
-=== Boolean
+### Boolean
 Can encode either True or False.
 
-=== List
+### List
 A list contains a set of values, ending with the 'end' token.
 
-=== Dictionary
+### Dictionary
 A dictionary contains a set of key value pairs.
 
-=== Object
+### Object
 A object is simular to a dictionary but includes the name of the type that is being
 (de)serialized.
 
-=== Copy
+### Copy
 The copy-operator is replaced by a single field from the compression-window at
 a distance of 0 to 127. The result of the copy is in itself added to the
 compression-window.
@@ -155,6 +155,6 @@ the compression-window before the compount byte-array, custom-field & object val
 The individual fields (keys & values) of a list, dictionary & object are added to the
 compression-window after the compount list, dictionary & object value. 
 
-=== Keep-alive
+### Keep-alive
 This character can be send between fields to keep the network connection alive.
 
