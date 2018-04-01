@@ -1,0 +1,58 @@
+
+message Error {
+    required uint32_t   id              = 1;
+    required string     message         = 2; 
+}
+
+/* Get the content of a message.
+ * \param id        ID of the message.
+ * \param version   The version of the message to see, or None to get the last.
+ */
+message GetMessage {
+    required uint64_t   id              = 1;
+    optional uint32_t   version         = 2;
+}
+
+/* A message
+ * \param id        ID of the message.
+ * \param version   Version of the message
+ * \param title     Title of the message
+ * \param text      Constructed text of the message, this uses a markdown format.
+ */
+message Message {
+    required uint64_t   id              = 2;
+    required uint32_t   version         = 3;
+    required string     title           = 4;
+    required string     text            = 5;
+}
+
+/* Get the content of a message result.
+ * \param error     Error on failure.
+ * \param message   Message on success.
+ */
+message GetMessageResult {
+    oneof result {
+        Error           error           = 1;
+        Message         message         = 2;
+    }
+}
+
+message PostMessage {
+    uint64_t    folder_id;
+    string      title;
+    string      text;
+}
+
+message PostMessageResult {
+    uint64_t    id;
+    uint32_t    version;
+}
+
+
+service Messaging {
+    rpc GetMessage (GetMessage) returns (GetMessageResult);
+    rpc PostMessage (PostMessage) returns (PostMessageResult);
+    rpc EditMessage (EditMessage) returns (EditMessageResult);
+    rpc DeleteMessage (DeleteMessage) returns (DeleteMessageResult);
+
+}
