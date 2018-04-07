@@ -3,128 +3,84 @@
 ## Format
 
 ```
-stream                  = +(field | keep-alive);
-field                   = integer | binary-float | decimal-float | boolean | none | string | byte-array | custom-value | list | dictionary | object | copy-operator;
-boolean                 = true | false;
-string                  = ascii-string | utf8-string;
+field           = simplex | complex;
 
-integer                 = 0x00 byte:value
-                        | 0x01 2*byte:value
-                        | 0x02 3*byte:value
-                        | 0x03 4*byte:value
-                        | 0x04 5*byte:value
-                        | 0x05 6*byte:value
-                        | 0x06 7*byte:value
-                        | 0x07 8*byte:value
-                        | 0x08 2*byte:length <length>*byte:value
-                        ;
-                        
-binary-float            = 0x09 binary16
-                        | 0x0a binary32
-                        | 0x0b binary64
-                        | 0x0c binary128
-                        ;
+simplex         = integer | boolean | none | string;
+complex         = float | list | object | byte-array;
 
-decimal-float           = 0x0d decimal32
-                        | 0x0e decimal64
-                        | 0x0f decimal128
-                        ;
+boolean         = true | false;
+string          = ascii-string | utf8-string;
+float           = binary-float | decimal-float
 
-byte-array              = 0x10 byte:length <length>*byte:value
-                        | 0x11 2*byte:length <length>*byte:value
-                        | 0x12 3*byte:length <length>*byte:value
-                        | 0x13 4*byte:length <length>*byte:value
-                        ;
-
-custom-value            = 0x14 field:name byte:length <length>*byte:value
-                        | 0x15 field:name 2*byte:length <length>*byte:value
-                        | 0x16 field:name 3*byte:length <length>*byte:value
-                        | 0x17 field:name 4*byte:length <length>*byte:value
-                        ;
-
-keep-alive              = 0x18;
-none                    = 0x19;
-false                   = 0x1a;
-true                    = 0x1b;
-end                     = 0x1c;
-list                    = 0x1d *field:value end;
-dictionary              = 0x1e *(field:key field:value) end;
-object                  = 0x1f field:name *(field:key field:value) end;
-
-ascii-string            = 0x20-0x7e:character *0x01-0x7f:character 0x80-0xff:character;
-utf8-string             = 0x7f *0x01-0xff:character 0x00;
-
-copy-operator           = 0x80-0xff:distance;
+mark            = 0x00;                                                                                    # ASCII-NUL
+none            = 0x10;                                                                                    # ASCII-DC1
+true            = 0x11;                                                                                    # ASCII-DC2
+false           = 0x12;                                                                                    # ASCII-DC3
+list            = 0x13 *field:value mark;                                                                  # ASCII-DC4
+object          = 0x14 field:name *field:key mark *field:value mark;                                       # ASCII-NAK
+decimal-float   = 0x15 (integer:exponent integer:mantissa | none:nan integer:code | true:inf | false:-inf) # ASCII-SYN
+binary-float    = 0x16 (integer:exponent integer:mantissa | none:nan integer:code | true:inf | false:-inf) # ASCII-ETB
+byte-array      = 0x17 field:name +(0x00-0xff:length <length>*byte);                                       # ASCII-CAN
+utf8-string     = 0x18 *0x01-0xff:value mark;                                                              # ASCII-EM
+reserved        = 0x19;                                                                                    # ASCII-DLE
+reserved        = 0x1a;                                                                                    # ASCII-SUB
+ascii-chr       = 0x01-0x0f | 0x1b-0x7f;
+last-ascii-char = 0x81-0x8f | 0x9b-0xff;
+ascii-string    = +ascii-char:value last-ascii-char:value
+integer         = 0b1CVVVVVV *0bCVVVVVVV;
 ```
-
-## Initial Compression Dictionary
-
- | Distance | Type         |                Value |
- | -------- | ------------ | -------------------- |
- |        0 | String       |                empty |
- |        1 | List         |                empty |
- |        2 | Dictionary   |                empty |
- |        3 | Byte-array   |                empty |
- |        4 | Binary-float |                  0.0 |
- |        5 | Binary-float |                  1.0 |
- |        6 | Binary-float |                 -1.0 |
- |        7 | Binary-float |                  inf |
- |        8 | Binary-float |                 -inf |
- |        9 | Integer      |                    0 |
- |       10 | Integer      |                  127 |
- |       11 | Integer      |                 -128 |
- |       12 | Integer      |                  255 |
- |       13 | Integer      |                  256 |
- |       14 | Integer      |                32767 |
- |       15 | Integer      |               -32768 |
- |       16 | Integer      |                65535 |
- |       17 | Integer      |                65536 |
- |       18 | Integer      |           2147483647 |
- |       19 | Integer      |          -2147483648 |
- |       20 | Integer      |           4294967295 |
- |       21 | Integer      |           4294967296 |
- |       22 | Integer      |  9223372036854775807 |
- |       23 | Integer      | -9223372036854775808 |
- |       24 | Integer      | 18446744073709551615 |
- |       25 | Integer      | 18446744073709551616 |
-
 
 ## Fields
 
 ### Integers
-Integers are encoded as signed two's compliment little endian. Integers must
-be encoded in the smallest amount of space possible.
+Integers are encoded as signed two's compliment variable length little endian
+continue bit encoded.
+
+The first byte has 6 bits of value and bit-6 is the continue bit. Following
+bytes has 7 bits of value and bit-7 is the continue bit.
+
+Integers must be encoded with the least amount of bits needed. Sign-bits always
+need to be encoded, so it may be required to have a full byte needed for
+just the sign-bits.
 
 ### Strings
-When all characters code points in a string can be represented with 7 bits and
-the first character is printable, then the string is stop-bit encoded.
-The bit-7 is the stop-bit, denoting that it is the last character of a string.
-The string should not end with a NUL character, unless the string is a single
-character.
+When all characters code points in a string are in 0x00-0x0f and 0x1b-0x7f and
+is at least two characters long, then the string must be encoded as an
+ascii-string. And ascii-string is encoded as 7 bits with a stop-bit in
+the most-significant bit of each byte. When the stop-bit is set this
+character is the last of the string. An ascii-string must not end with a
+NUL character.
 
-If a string contains characters that cannot be represented in 7 bits or
-is a empty string. then the string is encoded as UTF-8 ending in a NUL character.
-
-### Binary float
-Binary floating point numbers should be encoded using the smallest amount of space
-without losing precission.
-
-### Decimal float
-Decimal floating point numbers should be encoded using the smallest amount of space
-without losing precission.
+Any other string must be encoded as a utf8-string. An utf8-string is
+ends with a mark-token.
 
 ### Byte array
-A byte array contains the length of the opaque data following it. The length is
-encoded as a unsigned little endian integer. Always encode the length in the
-smallest amount of bytes needed.
+A byte array is encoded in chucks of up to 255 bytes, using a byte for the size
+of the next chuck. A chunk of less than 255 bytes terminates the byte array.
 
-### Custom-value
-A custom-value is like a byte-array, but includes the name of the type that is being
-(de)serialized.
+If a name is included the byte array is used to encode a specific custom-type.
+A name must be a string of at least 1 character or none.
 
-A custom-value contains the length of the data following it. The length is
-encoded as a unsigned little endian integer. Always encode the length in the
-smallest amount of bytes needed.
+### Binary float
+Binary floating point numbers represent: mantissa * 2^exponent.
+
+The exponent is scaled such that the mantissa does not have trailing zero bits.
+The floating point number should be encoded in the least amount of bytes without
+losing precision from the original representation.
+
+Different from IEEE-754 floating point the mantissa explicitly encodes
+the most-significant bit and the exponent is encoded without bias. Due to
+not explicitly encoding the most-significant bit there are no denormals.
+
+NaN is encoded as none plus an integer for the code.
+positive infinite is encoded as true, and negative infinite is encoded as false.
+
+### Decimal float
+Binary floating point numbers represent: mantissa * 10^exponent.
+
+The exponent is scaled such that the mantissa does not have trailing zero decimal
+digits. The floating point number should be encoded in the least amount of bytes
+without losing precision from the original representation.
 
 ### None
 A None value and type.
@@ -133,28 +89,41 @@ A None value and type.
 Can encode either True or False.
 
 ### List
-A list contains a set of values, ending with the 'end' token.
-
-### Dictionary
-A dictionary contains a set of key value pairs.
+A list contains a set of values, ending with the mark token.
 
 ### Object
-A object is simular to a dictionary but includes the name of the type that is being
-(de)serialized.
+A dictionary contains a set of key value pairs. First keys are send,
+followed by the mark token. Then all values are send, followed by the second
+mark token.
 
-### Copy
-The copy-operator is replaced by a single field from the compression-window at
-a distance of 0 to 127. The result of the copy is in itself added to the
-compression-window.
+Keys must be unique within an object.
 
-All fields that are encoded as 2 or more bytes are added to the compression-window.
+The keys are send first, so it is easier to compress using a lzw-like algorithm.
+For this and for canonicallity reasons the keys must be sorted.
 
-The header (type length & name) of a byte-array, custom-field & object are added to
-the compression-window before the compount byte-array, custom-field & object value.
+If a name is included then the object is used to (de)serialize a class-instance.
+A name must be a string of at least 1 character or none.
 
-The individual fields (keys & values) of a list, dictionary & object are added to the
-compression-window after the compount list, dictionary & object value. 
+### Mark
+The mark token is technically not a field. The mark token is not allowed to start
+a field, or it would not be possible to differentiate a field from the end of a list
+or dictionary.
 
-### Keep-alive
-This character can be send between fields to keep the network connection alive.
+Since the only value that is not allowed in a UTF-8 string is 0x00 it is a useful
+value for the mark-code.
+
+## Sorting
+Keys in an object must be sorted for canonical reasons. The following sort ordering
+must be used.
+
+* None
+* False
+* True
+* Ascending integers
+* Ascending binary float (-infinite, ascending value, +infinite, NaN code).
+* Ascending decimal float (-infinite, ascending value, +infinite, NaN code).
+* Strings, sorted left to right for each byte value in its UTF-8 encoded form.
+* Byte-array, sorted by name, then left to right for each byte value.
+* list, sorted left to right
+* object, sorted by name, then by keys left to right, then by values left to right.
 
