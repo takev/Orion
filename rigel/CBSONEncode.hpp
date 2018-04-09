@@ -73,7 +73,7 @@ static inline void encode(ostream &stream, const string &value)
     }
 
     stream.write(value.data(), value.length() - 1);
-    stream.put(value[value.length() - 1] & 0x80);
+    stream.put(value[value.length() - 1] | 0x80);
     return;
 
 utf8_string_encoding:
