@@ -6,38 +6,39 @@
 field           = simplex | complex;
 
 simplex         = integer | boolean | none | string;
-complex         = float | list | object | byte-array;
+complex         = float | list | dictionary | byte-array;
 
 boolean         = true | false;
 string          = ascii-string | utf8-string;
 float           = binary-float | decimal-float
 
-mark            = 0x00;                                                                                    # ASCII-NUL
-none            = 0x10;                                                                                    # ASCII-DC1
-true            = 0x11;                                                                                    # ASCII-DC2
-false           = 0x12;                                                                                    # ASCII-DC3
-list            = 0x13 *field:value mark;                                                                  # ASCII-DC4
-object          = 0x14 field:name *field:key mark *field:value mark;                                       # ASCII-NAK
-decimal-float   = 0x15 (integer:exponent integer:mantissa | none:nan integer:code | true:inf | false:-inf) # ASCII-SYN
-binary-float    = 0x16 (integer:exponent integer:mantissa | none:nan integer:code | true:inf | false:-inf) # ASCII-ETB
-byte-array      = 0x17 field:name +(0x00-0xff:length <length>*byte);                                       # ASCII-CAN
-utf8-string     = 0x18 *0x01-0xff:value mark;                                                              # ASCII-EM
-reserved        = 0x19;                                                                                    # ASCII-DLE
-reserved        = 0x1a;                                                                                    # ASCII-SUB
+mark            = 0x00;
+none            = 0x10;
+true            = 0x11;
+false           = 0x12;
+list            = 0x13 *field:value mark;
+dictionary      = 0x14 *field:key mark *field:value mark;
+decimal-float   = 0x15 (integer:mantissa integer:exponent | integer:0 | true:-inf | false:inf);
+binary-float    = 0x16 (integer:mantissa integer:exponent | integer:0 | true:-inf | false:inf);
+byte-array      = 0x17 +(0x00-0xff:length <length>*byte);
+utf8-string     = 0x18 *0x01-0xff:value mark;
+reserved        = 0x19;
+reserved        = 0x1a;
 ascii-chr       = 0x01-0x0f | 0x1b-0x7f;
 last-ascii-char = 0x81-0x8f | 0x9b-0xff;
 ascii-string    = +ascii-char:value last-ascii-char:value
-integer         = 0b1CVVVVVV *0bCVVVVVVV;
+integer         = 0b1SVVVVVV *0bSVVVVVVV;
 ```
 
 ## Fields
 
 ### Integers
 Integers are encoded as signed two's compliment variable length little endian
-continue bit encoded.
+stop-bit encoded.
 
-The first byte has 6 bits of value and bit-6 is the continue bit. Following
-bytes has 7 bits of value and bit-7 is the continue bit.
+The first byte has 6 bits of value and bit-6 is the stop-bit. Following
+bytes has 7 bits of value and bit-7 is the stop-bit. The last byte has
+the stop-bit set.
 
 Integers must be encoded with the least amount of bits needed. Sign-bits always
 need to be encoded, so it may be required to have a full byte needed for
@@ -91,17 +92,17 @@ Can encode either True or False.
 ### List
 A list contains a set of values, ending with the mark token.
 
-### Object
+### Dictionary
 A dictionary contains a set of key value pairs. First keys are send,
 followed by the mark token. Then all values are send, followed by the second
 mark token.
 
-Keys must be unique within an object.
+Keys must be unique within an dictionary.
 
 The keys are send first, so it is easier to compress using a lzw-like algorithm.
 For this and for canonicallity reasons the keys must be sorted.
 
-If a name is included then the object is used to (de)serialize a class-instance.
+If a name is included then the dictionary is used to (de)serialize a class-instance.
 A name must be a string of at least 1 character or none.
 
 ### Mark
@@ -113,7 +114,7 @@ Since the only value that is not allowed in a UTF-8 string is 0x00 it is a usefu
 value for the mark-code.
 
 ## Sorting
-Keys in an object must be sorted for canonical reasons. The following sort ordering
+Keys in an dictionary must be sorted for canonical reasons. The following sort ordering
 must be used.
 
 * None
@@ -125,5 +126,5 @@ must be used.
 * Strings, sorted left to right for each byte value in its UTF-8 encoded form.
 * Byte-array, sorted by name, then left to right for each byte value.
 * list, sorted left to right
-* object, sorted by name, then by keys left to right, then by values left to right.
+* dictionary, sorted by name, then by keys left to right, then by values left to right.
 

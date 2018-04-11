@@ -4,7 +4,7 @@ project (CBSON)
 
 find_package(Boost COMPONENTS unit_test_framework REQUIRED)
 
-add_definitions(-std=c++17)
+add_definitions(-std=c++17 -Wall -Wstrict-null-sentinel -Weffc++ -Wold-style-cast -Woverloaded-virtual )
 include_directories("${PROJECT_SOURCE_DIR}")
 
 add_executable(CBSONEncodeTests CBSONEncodeTests.cpp)
