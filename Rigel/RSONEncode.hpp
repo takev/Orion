@@ -7,7 +7,7 @@
 
 namespace Orion {
 namespace Rigel {
-namespace CBSON {
+namespace RSON {
 
 using namespace std;
 using namespace boost;

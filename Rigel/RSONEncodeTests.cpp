@@ -1,15 +1,14 @@
 #define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE "CBSONEncode tests"
+#define BOOST_TEST_MODULE "RSONEncode tests"
 #include <boost/test/unit_test.hpp>
 
 #include <string>
 #include <iostream>
 #include <sstream>
-#include <CBSONEncodeLength.hpp>
-#include <CBSONEncode.hpp>
+#include <RSONEncode.hpp>
 
 using namespace std;
-using namespace Orion::Rigel::CBSON;
+using namespace Orion::Rigel::RSON;
 
 BOOST_AUTO_TEST_CASE(EncodeString)
 {

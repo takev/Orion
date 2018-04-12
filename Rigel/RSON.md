@@ -1,4 +1,4 @@
-# Compressed Binary Serial Object Notation
+# Rigel Serial Object Notation
 
 ## Format
 
@@ -53,7 +53,7 @@ character is the last of the string. An ascii-string must not end with a
 NUL character.
 
 Any other string must be encoded as a utf8-string. An utf8-string is
-ends with a mark-token.
+ends with a mark-token. The string must contain only valid utf-8 values.
 
 ### Byte array
 A byte array is encoded in chucks of up to 255 bytes, using a byte for the size
