@@ -5,228 +5,82 @@
 #include <string>
 #include <iostream>
 #include <sstream>
-#include <RSONEncode.hpp>
+#include <boost/none.hpp>
+#include "RSONEncode.hpp"
 
 using namespace std;
+using namespace boost;
 using namespace Orion::Rigel::RSON;
 
 BOOST_AUTO_TEST_CASE(EncodeString)
 {
-    {
-        stringstream result;
-        encode(result, string(""));
-        BOOST_CHECK(result.str() == string("\x18\x00", 2));
-    }
-
-    {
-        stringstream result;
-        encode(result, string("H"));
-        BOOST_CHECK(result.str() == string("\x18H\x00", 3));
-    }
-
-    {
-        stringstream result;
-        encode(result, string("He"));
-        BOOST_CHECK(result.str() == string("H\xe5", 2));
-    }
-
-    {
-        stringstream result;
-        encode(result, string("Hello World"));
-        BOOST_CHECK(result.str() == "Hello Worl\xe4");
-    }
-
-    {   // Euro symbol.
-        stringstream result;
-        encode(result, string("H\xe2\x82\xac"));
-        BOOST_CHECK(result.str() == string("\x18H\xe2\x82\xac\x00", 6));
-    }
-
-    {
-        stringstream result;
-        BOOST_CHECK_THROW(encode(result, string("H\x00llo", 5)), out_of_range);
-    }
+    BOOST_CHECK(encode(string("")) == string("\x18\x00", 2));
+    BOOST_CHECK(encode(string("H")) == string("\x18H\x00", 3));
+    BOOST_CHECK(encode(string("He")) == string("H\xe5", 2));
+    BOOST_CHECK(encode(string("Hello World")) == "Hello Worl\xe4");
+    BOOST_CHECK(encode(string("H\xe2\x82\xac")) == string("\x18H\xe2\x82\xac\x00", 6));
+    BOOST_CHECK_THROW(encode(string("H\x00llo", 5)), out_of_range);
 }
 
 BOOST_AUTO_TEST_CASE(EncodeInt8)
 {
-    {
-        stringstream result;
-        encode(result, static_cast<int8_t>(0));
-        BOOST_CHECK(result.str() == string("\xc0", 1));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<int8_t>(1));
-        BOOST_CHECK(result.str() == string("\xc1", 1));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<int8_t>(-1));
-        BOOST_CHECK(result.str() == string("\xff", 1));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<int8_t>(31));
-        BOOST_CHECK(result.str() == string("\xdf", 1));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<int8_t>(-32));
-        BOOST_CHECK(result.str() == string("\xe0", 1));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<int8_t>(63));
-        BOOST_CHECK(result.str() == string("\xbf\x80", 2));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<int8_t>(-64));
-        BOOST_CHECK(result.str() == string("\x80\xff", 2));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<int8_t>(127));
-        BOOST_CHECK(result.str() == string("\xbf\x81", 2));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<int8_t>(-128));
-        BOOST_CHECK(result.str() == string("\x80\xfe", 2));
-    }
+    BOOST_CHECK(encode(static_cast<int8_t>(0)) == string("\xc0", 1));
+    BOOST_CHECK(encode(static_cast<int8_t>(1)) == string("\xc1", 1));
+    BOOST_CHECK(encode(static_cast<int8_t>(-1)) == string("\xff", 1));
+    BOOST_CHECK(encode(static_cast<int8_t>(31)) == string("\xdf", 1));
+    BOOST_CHECK(encode(static_cast<int8_t>(-32)) == string("\xe0", 1));
+    BOOST_CHECK(encode(static_cast<int8_t>(63)) == string("\xbf\x80", 2));
+    BOOST_CHECK(encode(static_cast<int8_t>(-64)) == string("\x80\xff", 2));
+    BOOST_CHECK(encode(static_cast<int8_t>(127)) == string("\xbf\x81", 2));
+    BOOST_CHECK(encode(static_cast<int8_t>(-128)) == string("\x80\xfe", 2));
 }
 
 BOOST_AUTO_TEST_CASE(EncodeUInt8)
 {
-    {
-        stringstream result;
-        encode(result, static_cast<uint8_t>(0));
-        BOOST_CHECK(result.str() == string("\xc0", 1));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<uint8_t>(1));
-        BOOST_CHECK(result.str() == string("\xc1", 1));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<uint8_t>(31));
-        BOOST_CHECK(result.str() == string("\xdf", 1));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<uint8_t>(63));
-        BOOST_CHECK(result.str() == string("\xbf\x80", 2));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<uint8_t>(127));
-        BOOST_CHECK(result.str() == string("\xbf\x81", 2));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<uint8_t>(255));
-        BOOST_CHECK(result.str() == string("\xbf\x83", 2));
-    }
+    BOOST_CHECK(encode(static_cast<uint8_t>(0)) == string("\xc0", 1));
+    BOOST_CHECK(encode(static_cast<uint8_t>(1)) == string("\xc1", 1));
+    BOOST_CHECK(encode(static_cast<uint8_t>(31)) == string("\xdf", 1));
+    BOOST_CHECK(encode(static_cast<uint8_t>(63)) == string("\xbf\x80", 2));
+    BOOST_CHECK(encode(static_cast<uint8_t>(127)) == string("\xbf\x81", 2));
+    BOOST_CHECK(encode(static_cast<uint8_t>(255)) == string("\xbf\x83", 2));
 }
 
 BOOST_AUTO_TEST_CASE(EncodeFloat)
 {
-    {
-        stringstream result;
-        encode(result, static_cast<float>(0.0));
-        BOOST_CHECK(result.str() == string("\x16\xc0", 2));
-    }
+    BOOST_CHECK(encode(static_cast<float>(0.0)) == string("\x16\xc0", 2));
+    BOOST_CHECK(encode(static_cast<float>(1.0)) == string("\x16\xc1\xc0", 3));
+    BOOST_CHECK(encode(static_cast<float>(2.0)) == string("\x16\xc1\xc1", 3));
+    BOOST_CHECK(encode(static_cast<float>(0.5)) == string("\x16\xc1\xff", 3));
+    BOOST_CHECK(encode(static_cast<float>(6.0)) == string("\x16\xc3\xc1", 3));
+    BOOST_CHECK(encode(static_cast<float>(38.0)) == string("\x16\xd3\xc1", 3));
+}
 
-    {
-        stringstream result;
-        encode(result, static_cast<float>(1.0));
-        BOOST_CHECK(result.str() == string("\x16\xc1\xc0", 3));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<float>(2.0));
-        BOOST_CHECK(result.str() == string("\x16\xc1\xc1", 3));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<float>(0.5));
-        BOOST_CHECK(result.str() == string("\x16\xc1\xff", 3));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<float>(6.0));
-        BOOST_CHECK(result.str() == string("\x16\xc3\xc1", 3));
-    }
-
-    {
-        stringstream result;
-        encode(result, static_cast<float>(38.0));
-        BOOST_CHECK(result.str() == string("\x16\xd3\xc1", 3));
-    }
+BOOST_AUTO_TEST_CASE(EncodeDouble)
+{
+    BOOST_CHECK(encode(static_cast<double>(0.0)) == string("\x16\xc0", 2));
+    BOOST_CHECK(encode(static_cast<double>(1.0)) == string("\x16\xc1\xc0", 3));
+    BOOST_CHECK(encode(static_cast<double>(2.0)) == string("\x16\xc1\xc1", 3));
+    BOOST_CHECK(encode(static_cast<double>(0.5)) == string("\x16\xc1\xff", 3));
+    BOOST_CHECK(encode(static_cast<double>(6.0)) == string("\x16\xc3\xc1", 3));
+    BOOST_CHECK(encode(static_cast<double>(38.0)) == string("\x16\xd3\xc1", 3));
 }
 
 BOOST_AUTO_TEST_CASE(EncodeBoolean)
 {
-    {
-        stringstream result;
-        encode(result, none);
-        BOOST_CHECK(result.str() == string("\x10", 1));
-    }
-
-    {
-        stringstream result;
-        encode(result, true);
-        BOOST_CHECK(result.str() == string("\x11", 1));
-    }
-
-    {
-        stringstream result;
-        encode(result, false);
-        BOOST_CHECK(result.str() == string("\x12", 1));
-    }
-
+    BOOST_CHECK(encode(none) == string("\x10", 1));
+    BOOST_CHECK(encode(true) == string("\x11", 1));
+    BOOST_CHECK(encode(false) == string("\x12", 1));
 }
 
 BOOST_AUTO_TEST_CASE(EncodeVector)
 {
-    {
-        stringstream result;
-        encode(result, vector<string>{"foo", "bar"});
-        BOOST_CHECK(result.str() == string("\x13" "fo\xef" "ba\xf2" "\x00", 8));
-    }
-
-    {
-        stringstream result;
-        encode(result, vector<map<string, int>>{{{"foo", 0}, {"bar", 1}}, {{"foo", 0}}});
-        BOOST_CHECK(result.str() == string("\x13" "\x14" "ba\xf2" "fo\xef" "\x00" "\xc1" "\xc0" "\x00" "\x14" "fo\xef" "\x00" "\xc0" "\x00" "\x00", 20));
-    }
+    BOOST_CHECK(encode(vector<string>{"foo", "bar"}) == string("\x13" "fo\xef" "ba\xf2" "\x00", 8));
+    BOOST_CHECK(encode(vector<map<string, int>>{{{"foo", 0}, {"bar", 1}}, {{"foo", 0}}}) == string("\x13" "\x14" "ba\xf2" "fo\xef" "\x00" "\xc1" "\xc0" "\x00" "\x14" "fo\xef" "\x00" "\xc0" "\x00" "\x00", 20));
 }
 
 BOOST_AUTO_TEST_CASE(EncodeMap)
 {
-    {   // The result must be sorted.
-        stringstream result;
-        encode(result, map<string, int>{{"foo", 0}, {"bar", 1}});
-        BOOST_CHECK(result.str() == string("\x14" "ba\xf2" "fo\xef" "\x00" "\xc1" "\xc0" "\x00", 11));
-    }
+    BOOST_CHECK(encode(map<string, int>{{"foo", 0}, {"bar", 1}}) == string("\x14" "ba\xf2" "fo\xef" "\x00" "\xc1" "\xc0" "\x00", 11));
 }
 
 
