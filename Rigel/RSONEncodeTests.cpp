@@ -75,12 +75,12 @@ BOOST_AUTO_TEST_CASE(EncodeBoolean)
 BOOST_AUTO_TEST_CASE(EncodeVector)
 {
     BOOST_CHECK(encode(vector<string>{"foo", "bar"}) == string("\x13" "fo\xef" "ba\xf2" "\x00", 8));
-    BOOST_CHECK(encode(vector<map<string, int>>{{{"foo", 0}, {"bar", 1}}, {{"foo", 0}}}) == string("\x13" "\x14" "ba\xf2" "fo\xef" "\x00" "\xc1" "\xc0" "\x00" "\x14" "fo\xef" "\x00" "\xc0" "\x00" "\x00", 20));
+    BOOST_CHECK(encode(vector<map<string, int>>{{{"foo", 0}, {"bar", 1}}, {{"foo", 0}}}) == string("\x13" "\x14" "ba\xf2" "fo\xef" "\x00" "\xc1" "\xc0" "\x14" "fo\xef" "\x00" "\xc0" "\x00", 18));
 }
 
 BOOST_AUTO_TEST_CASE(EncodeMap)
 {
-    BOOST_CHECK(encode(map<string, int>{{"foo", 0}, {"bar", 1}}) == string("\x14" "ba\xf2" "fo\xef" "\x00" "\xc1" "\xc0" "\x00", 11));
+    BOOST_CHECK(encode(map<string, int>{{"foo", 0}, {"bar", 1}}) == string("\x14" "ba\xf2" "fo\xef" "\x00" "\xc1" "\xc0", 10));
 }
 
 

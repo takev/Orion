@@ -5,6 +5,7 @@
 #include <map>
 #include <limits>
 #include <string>
+#include <type_traits>
 #include <boost/none.hpp>
 
 #include "RSON.hpp"
@@ -24,8 +25,8 @@ static inline void encode(std::string &s, boost::none_t value)
     s += NONE_CODE;
 }
 
-template<typename T>
-static inline void encodeInteger(std::string &s, T value)
+template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+static inline void encode(std::string &s, T value)
 {
     T end_value = value >= 0 ? 0 : -1;
     uint8_t end_top_bit = value >= 0 ? 0 : 1;
@@ -51,19 +52,6 @@ static inline void encodeInteger(std::string &s, T value)
         s += (more ? 0x00 : 0x80) | part;
     }
 }
-
-static inline void encode(std::string &s, __int128_t value) { encodeInteger(s, value); }
-static inline void encode(std::string &s, int64_t value) { encodeInteger(s, value); }
-static inline void encode(std::string &s, int32_t value) { encodeInteger(s, value); }
-static inline void encode(std::string &s, int16_t value) { encodeInteger(s, value); }
-static inline void encode(std::string &s, int8_t value) { encodeInteger(s, value); }
-
-static inline void encode(std::string &s, __uint128_t value) { encodeInteger(s, value); }
-static inline void encode(std::string &s, uint64_t value) { encodeInteger(s, value); }
-static inline void encode(std::string &s, uint32_t value) { encodeInteger(s, value); }
-static inline void encode(std::string &s, uint16_t value) { encodeInteger(s, value); }
-static inline void encode(std::string &s, uint8_t value) { encodeInteger(s, value); }
-
 
 template<typename T>
 static inline void splitFloatingPoint(T value, int32_t &exponent, int64_t &mantissa)
@@ -120,8 +108,8 @@ static inline void splitFloatingPoint(T value, int32_t &exponent, int64_t &manti
     }
 }
 
-template<typename T>
-static inline void encodeFloat(std::string &s, T value)
+template<typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+static inline void encode(std::string &s, T value)
 {
     int32_t exponent;
     int64_t mantissa;
@@ -132,7 +120,6 @@ static inline void encodeFloat(std::string &s, T value)
 
     switch (exponent) {
     case INT32_MIN: // NaN
-        encode(s, mantissa);
         encode(s, boost::none);
         break;
 
@@ -155,9 +142,6 @@ static inline void encodeFloat(std::string &s, T value)
         }
     }
 }
-
-static inline void encode(std::string &s, float value) { encodeFloat(s, value); }
-static inline void encode(std::string &s, double value) { encodeFloat(s, value); }
 
 static inline void encode(std::string &s, const std::string &value)
 {
@@ -199,8 +183,7 @@ static inline void encode(std::string &s, const std::string &value)
     }
 }
 
-template<typename T>
-static inline void encodeByteArray(std::string &s, const std::basic_string<uint8_t> &value)
+static inline void encode(std::string &s, const std::basic_string<uint8_t> &value)
 {
     s += BYTE_ARRAY_CODE;
 
@@ -208,14 +191,14 @@ static inline void encodeByteArray(std::string &s, const std::basic_string<uint8
     size_t last_chunk_size = value.length() % 255;
 
     // Copy chunks of 255 bytes length.
-    for (off_t chunk = 0; chunk < nr_full_chunks; chunk++) {
+    for (size_t chunk = 0; chunk < nr_full_chunks; chunk++) {
         s += static_cast<char>(0xff);
-        s.append(reinterpret_cast<char *>(&value.data()[chunk * 255]), 255);
+        s.append(reinterpret_cast<const char *>(&value.data()[chunk * 255]), 255);
     }
 
     // Last chunk, with length less than 255, including zero.
     s += static_cast<char>(last_chunk_size);
-    s.append(reinterpret_cast<char *>(&value.data()[value.length() - last_chunk_size]), last_chunk_size);
+    s.append(reinterpret_cast<const char *>(&value.data()[value.length() - last_chunk_size]), last_chunk_size);
 }
 
 // Vector-encode requires a prototype of map-encode so it can encode a vector of maps.
@@ -237,7 +220,7 @@ static inline void encode(std::string &s, const std::vector<T> &container)
 template<typename U, typename V>
 static inline void encode(std::string &s, const std::map<U, V> &container)
 {
-    s += OBJECT_CODE;
+    s += DICTIONARY_CODE;
 
     // Maps are already sorted by key.
     for (auto &item: container) {
@@ -249,8 +232,6 @@ static inline void encode(std::string &s, const std::map<U, V> &container)
     for (auto &item: container) {
         encode(s, item.second);
     }
-
-    s += MARK_CODE;
 }
 
 template<typename T>
