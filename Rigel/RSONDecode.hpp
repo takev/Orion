@@ -4,6 +4,8 @@
 #include <map>
 #include <boost/any.hpp>
 #include <boost/none.hpp>
+#include <boost/exception/all.hpp>
+
 #include "RSON.hpp"
 
 namespace Orion {
@@ -26,6 +28,15 @@ enum class Type {
     Integer
 };
 
+struct decode_error: virtual boost::exception {};
+struct decode_overflow_error: virtual decode_error, virtual std::exception {};
+struct decode_eof_error: virtual decode_error, virtual std::exception {};
+struct decode_code_error: virtual decode_error, virtual std::exception {};
+struct decode_type_error: virtual decode_error, virtual std::exception {};
+
+typedef boost::error_info<struct tag_code,char> code_info;
+typedef boost::error_info<struct tag_type,Type> type_info;
+
 static inline Type peekType(std::istream &stream)
 {
     auto p = stream.peek();
@@ -36,7 +47,6 @@ static inline Type peekType(std::istream &stream)
     } else {
         auto c = std::char_traits<char>::to_char_type(p);
         switch (c) {
-        case MARK_CODE: throw std::domain_error("Unexpected MARK Code");
         case NONE_CODE: return Type::None;
         case TRUE_CODE: return Type::Boolean;
         case FALSE_CODE: return Type::Boolean;
@@ -46,8 +56,10 @@ static inline Type peekType(std::istream &stream)
         case BINARY_FLOAT_CODE: return Type::BinaryFloat;
         case BYTE_ARRAY_CODE: return Type::ByteArray;
         case UTF8_STRING_CODE: return Type::String;
-        case RESERVED1_CODE: throw std::domain_error("Unexpected RESERVED1 Code");
-        case RESERVED2_CODE: throw std::domain_error("Unexpected RESERVED2 Code");
+        case MARK_CODE: BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
+        case RESERVED1_CODE: BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
+        case RESERVED2_CODE: BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
+
         default:
             if (c < 0) {
                 return Type::Integer;
@@ -63,7 +75,7 @@ static inline uint8_t peekNoEOF(std::istream &stream)
     auto p = stream.peek();
 
     if (p == std::char_traits<char>::eof()) {
-        throw std::domain_error("Unexpected end-of-file.");
+        BOOST_THROW_EXCEPTION(decode_eof_error());
     }
 
     return static_cast<uint8_t>(std::char_traits<char>::to_char_type(p));
@@ -74,10 +86,23 @@ static inline uint8_t getNoEOF(std::istream &stream)
     auto p = stream.get();
 
     if (p == std::char_traits<char>::eof()) {
-        throw std::domain_error("Unexpected end-of-file.");
+        BOOST_THROW_EXCEPTION(decode_eof_error());
     }
 
     return static_cast<uint8_t>(std::char_traits<char>::to_char_type(p));
+}
+
+static inline void readIntoNoEOF(std::basic_string<uint8_t> &dst, std::istream &stream, uint8_t size)
+{
+    uint8_t buffer[255];
+
+    stream.read(reinterpret_cast<char *>(buffer), size);
+
+    if (stream.eofbit) {
+        BOOST_THROW_EXCEPTION(decode_eof_error());
+    }
+
+    dst.append(buffer, size);
 }
 
 template<typename T, typename std::enable_if<std::is_integral<T>::value && !std::is_same<bool, T>::value, int>::type = 0>
@@ -87,7 +112,7 @@ static inline T decode(std::istream &stream)
     auto c = getNoEOF(stream);
     
     if ((c & 0x80) == 0) {
-        throw std::domain_error("Stream does not contain a integer.");
+        BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
     }
 
     bool stop = (c & 0x40) > 0;
@@ -109,7 +134,7 @@ static inline T decode(std::istream &stream)
     int overflowed_bits = -unused_bits;
 
     if (overflowed_bits > 7) {
-        throw std::overflow_error("Integer is to large for type.");
+        BOOST_THROW_EXCEPTION(decode_overflow_error());
 
     } else if (overflowed_bits > 0) {
         // Sign extend the last septet, this is always signed.
@@ -119,10 +144,10 @@ static inline T decode(std::istream &stream)
         last_septet >>= (8 - overflowed_bits);
 
         if (std::is_unsigned<T>::value && last_septet < 0) {
-            throw std::overflow_error("Integer is negative for unsigned type.");
+            BOOST_THROW_EXCEPTION(decode_overflow_error());
         }
         if (last_septet != 0 && last_septet != -1) {
-            throw std::overflow_error("Integer overflowed type.");
+            BOOST_THROW_EXCEPTION(decode_overflow_error());
         }
     }
 
@@ -136,10 +161,10 @@ static inline T decode(std::istream &stream)
     return value;
 }
 
-template<typename T, typename std::enable_if<std::is_base_of<std::string, T>::value, int>::type = 0>
-static inline std::string decode(std::istream &stream)
+template<typename T, typename std::enable_if<std::is_same<std::string, T>::value, int>::type = 0>
+static inline T decode(std::istream &stream)
 {
-    std::string r;
+    T r;
 
     auto c = getNoEOF(stream);
    
@@ -156,13 +181,15 @@ static inline std::string decode(std::istream &stream)
         }
 
     } else if (c >= 0x80 || (c >= 0x10 && c <= 0x1a)) {
-        throw std::domain_error("Unexpected code.");
+        BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
 
     } else {
-        // stop-bit encoded ASCII string.
+        // stop-bit encoded ASCII string. May be terminated with a nil+stop-bit.
         bool stop = false;
         while (1) {
-            r += static_cast<char>(c);
+            if (c) {
+                r += static_cast<char>(c);
+            }
 
             if (stop) {
                 return r;
@@ -175,15 +202,39 @@ static inline std::string decode(std::istream &stream)
     }
 }
 
+template<typename T, typename std::enable_if<std::is_same<std::basic_string<uint8_t>, T>::value, int>::type = 0>
+static inline T decode(std::istream &stream)
+{
+    T r;
+
+    auto c = getNoEOF(stream);
+   
+    if (c != BYTE_ARRAY_CODE) {
+        BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
+    }
+
+    uint8_t chunk_size;
+    do {
+        chunk_size = getNoEOF(stream);
+        if (chunk_size > 0) {
+            readIntoNoEOF(r, stream, chunk_size);
+        }
+
+    } while (chunk_size == 255);
+
+    return r;
+}
+
 template<typename T, typename std::enable_if<std::is_same<bool, T>::value, int>::type = 0>
-static inline bool decode(std::istream &stream)
+static inline T decode(std::istream &stream)
 {
     auto c = getNoEOF(stream);
 
     switch (c) {
     case TRUE_CODE: return true;
     case FALSE_CODE: return false;
-    default: throw std::domain_error("Unexpected code.");
+    default:
+        BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
     }
 }
 
@@ -193,7 +244,7 @@ static inline T decode(std::istream &stream)
     auto c = getNoEOF(stream);
 
     if (c != NONE_CODE) {
-        throw std::domain_error("Unexpected code.");
+        BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
     }
 
     return boost::none;
@@ -205,7 +256,7 @@ static inline T decode(std::istream &stream)
     auto c = getNoEOF(stream);
 
     if (c != BINARY_FLOAT_CODE) {
-        throw std::domain_error("Unexpected code.");
+        BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
     }
 
     switch (Type t = peekType(stream)) {
@@ -234,7 +285,7 @@ static inline T decode(std::istream &stream)
         }
 
     default:
-        throw std::domain_error("Unexpected type.");
+        BOOST_THROW_EXCEPTION(decode_type_error() << type_info(t));
     }
 }
 
@@ -243,7 +294,7 @@ static inline T decode(std::istream &stream)
 {
     auto c = getNoEOF(stream);
     if (c != LIST_CODE) {
-        throw std::domain_error("Unexpected code.");
+        BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
     }
 
     auto r = T();
@@ -262,7 +313,7 @@ static inline T decode(std::istream &stream)
 {
     auto c = getNoEOF(stream);
     if (c != DICTIONARY_CODE) {
-        throw std::domain_error("Unexpected code.");
+        BOOST_THROW_EXCEPTION(decode_code_error() << code_info(c));
     }
 
     // Read all the keys.
@@ -285,8 +336,7 @@ static inline T decode(std::istream &stream)
 
 static inline boost::any decode(std::istream &stream)
 {
-    auto type = peekType(stream);
-    switch (type) {
+    switch (auto t = peekType(stream)) {
     case Type::None: return decode<boost::none_t>(stream);
     case Type::Boolean: return decode<bool>(stream);
     case Type::Integer: return decode<int64_t>(stream);
@@ -294,7 +344,8 @@ static inline boost::any decode(std::istream &stream)
     case Type::String: return decode<std::string>(stream);
     case Type::List: return decode<std::vector<boost::any>>(stream);
     case Type::Dictionary: return decode<std::map<std::string, boost::any>>(stream);
-    default: throw std::domain_error("not implemented yet");
+    default:
+        BOOST_THROW_EXCEPTION(decode_type_error() << type_info(t));
     }
 }
 

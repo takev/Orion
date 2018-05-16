@@ -15,7 +15,7 @@ using namespace Orion::Rigel::RSON;
 BOOST_AUTO_TEST_CASE(DecodeString)
 {
     BOOST_CHECK(decode<string>(string("\x18\x00", 2))              == string(""));
-    BOOST_CHECK(decode<string>(string("\x18H\x00", 3))             == string("H"));
+    BOOST_CHECK(decode<string>(string("H\x80", 2))                 == string("H"));
     BOOST_CHECK(decode<string>(string("H\xe5", 2))                 == string("He"));
     BOOST_CHECK(decode<string>(string("Hello Worl\xe4"))           == string("Hello World"));
     BOOST_CHECK(decode<string>(string("\x18H\xe2\x82\xac\x00", 6)) == string("H\xe2\x82\xac"));

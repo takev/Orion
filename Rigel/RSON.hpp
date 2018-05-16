@@ -1,6 +1,13 @@
 
 namespace Orion {
 namespace Rigel {
+
+/** Rigel Serial Object Notation.
+ * This namespace includes functions for encoding and decoding C++ objects
+ * into RSON binary format.
+ *
+ * Documentation for RSON binary format can be found here: [RSON.md](RSON.md).
+ */
 namespace RSON {
 
 const char MARK_CODE = 0x00;

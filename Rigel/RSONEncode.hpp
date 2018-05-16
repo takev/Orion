@@ -7,6 +7,7 @@
 #include <string>
 #include <type_traits>
 #include <boost/none.hpp>
+#include <boost/exception/all.hpp>
 
 #include "RSON.hpp"
 #include "RSONLength.hpp"
@@ -14,6 +15,10 @@
 namespace Orion {
 namespace Rigel {
 namespace RSON {
+
+struct encode_error: virtual boost::exception {};
+struct encode_type_error: virtual encode_error, virtual std::exception {};
+struct encode_value_error: virtual encode_error, virtual std::exception {};
 
 static inline void encode(std::string &s, bool value)
 {
@@ -82,7 +87,7 @@ static inline void splitFloatingPoint(T value, int32_t &exponent, int64_t &manti
         memcpy(&tmp, &value, sizeof (tmp));
         value_as_int = tmp;
     } else {
-        throw std::domain_error("Can not encode float of this number of bytes.");
+        BOOST_THROW_EXCEPTION(encode_type_error());
     }
 
     bool sign = (value_as_int >> (MANTISSA_WIDTH + EXPONENT_WIDTH)) > 0;
@@ -97,7 +102,7 @@ static inline void splitFloatingPoint(T value, int32_t &exponent, int64_t &manti
         mantissa = sign ? INT64_MIN : INT64_MAX;
 
     } else if (exponent == EXPONENT_INF && (mantissa & MANTISSA_SIGNALLING_NAN) > 0) { // Signalling Nan
-        throw std::domain_error("Can not encode signalling NaN");
+        BOOST_THROW_EXCEPTION(encode_value_error());
 
     } else if (exponent == EXPONENT_INF) { // Quiet Nan
         exponent = INT32_MIN;
@@ -152,7 +157,7 @@ static inline void encode(std::string &s, const std::string &value)
     // Adjust when the string-value is not ASCII.
     for (const auto &c : value) {
         if (c == 0x00) {
-            throw std::out_of_range("A UTF-8 encoded string may not contain a NUL character");
+            BOOST_THROW_EXCEPTION(encode_value_error());
         }
 
         s += c;
@@ -165,13 +170,26 @@ static inline void encode(std::string &s, const std::string &value)
         }
     }
 
-    // An ASCII string must have at least two characters.
-    // Because the first character has the stop-bit unset.
-    // It can also not have a non-ASCII character or a
-    // control-character between 0x10 and 0x1a.
-    if (is_ascii && (value.length() < 2)) {
-        s.insert(start_position, 1, UTF8_STRING_CODE);
-        is_ascii = false;
+    if (is_ascii) {
+        switch (value.length()) {
+        case 0:
+            // A zero length ASCII string must be encoded as
+            // a UTF-8 string. Which will cause two bytes to
+            // be emited in the stream.
+            s.insert(start_position, 1, UTF8_STRING_CODE);
+            is_ascii = false;
+            break;
+
+        case 1:
+            // A one length ASCII string must be terminated with a nul, with
+            // the stop bit set. Which will cause two bytes to
+            // be emited in the stream.
+            s += MARK_CODE;
+            break;
+
+        default:
+            break;
+        }
     }
 
     if (is_ascii) {
@@ -234,6 +252,16 @@ static inline void encode(std::string &s, const std::map<U, V> &container)
     }
 }
 
+/** Encode a C++ value into RSON.
+ * This function will reserve space in the string for the whole value to be
+ * encoded. This should improve encoding performance by elmintating multiple
+ * memory allocations during appending to the string.
+ *
+ * The returned string may contain nul-characters.
+ *
+ * @param value The value to be encoded to RSON.
+ * @return The RSON encoded value as a string.
+ */
 template<typename T>
 static inline std::string encode(const T &value)
 {
@@ -245,6 +273,11 @@ static inline std::string encode(const T &value)
     return s;
 }
 
+/** Encode a C++ value into RSON and send it to a stream.
+ *
+ * @param stream The stream to write the RSON encoded value to.
+ * @param value The value to be encoded to RSON.
+ */
 template<typename T>
 static inline void encode(std::ostream &stream, const T &value)
 {

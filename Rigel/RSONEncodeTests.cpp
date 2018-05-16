@@ -15,11 +15,11 @@ using namespace Orion::Rigel::RSON;
 BOOST_AUTO_TEST_CASE(EncodeString)
 {
     BOOST_CHECK(encode(string("")) == string("\x18\x00", 2));
-    BOOST_CHECK(encode(string("H")) == string("\x18H\x00", 3));
+    BOOST_CHECK(encode(string("H")) == string("H\x80", 2));
     BOOST_CHECK(encode(string("He")) == string("H\xe5", 2));
     BOOST_CHECK(encode(string("Hello World")) == "Hello Worl\xe4");
     BOOST_CHECK(encode(string("H\xe2\x82\xac")) == string("\x18H\xe2\x82\xac\x00", 6));
-    BOOST_CHECK_THROW(encode(string("H\x00llo", 5)), out_of_range);
+    BOOST_CHECK_THROW(encode(string("H\x00llo", 5)), encode_value_error);
 }
 
 BOOST_AUTO_TEST_CASE(EncodeInt8)

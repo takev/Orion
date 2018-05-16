@@ -25,7 +25,7 @@ utf8-string     = 0x18 *0x01-0xff:value mark;
 reserved        = 0x19;
 reserved        = 0x1a;
 ascii-chr       = 0x01-0x0f | 0x1b-0x7f;
-last-ascii-char = 0x81-0x8f | 0x9b-0xff;
+last-ascii-char = 0x80-0x8f | 0x9b-0xff;
 ascii-string    = +ascii-char:value last-ascii-char:value
 integer         = 0b1SVVVVVV *0bSVVVVVVV;
 ```
@@ -45,12 +45,12 @@ need to be encoded, so it may be required to have a full byte needed for
 just the sign-bits.
 
 ### Strings
-When all characters code points in a string are in 0x00-0x0f and 0x1b-0x7f and
-is at least two characters long, then the string must be encoded as an
+When all characters code points in a string are in 0x01-0x0f and 0x1b-0x7f and
+is at least one character long, then the string must be encoded as an
 ascii-string. And ascii-string is encoded as 7 bits with a stop-bit in
 the most-significant bit of each byte. When the stop-bit is set this
 character is the last of the string. An ascii-string must not end with a
-NUL character.
+NUL character, unless it is only a single character.
 
 Any other string must be encoded as a utf8-string. An utf8-string is
 ends with a mark-token. The string must contain only valid utf-8 values.
