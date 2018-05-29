@@ -8,3 +8,8 @@
 #define fixed_subborrow_u64(borrow, a, b, result) _subborrow_u64(borrow, a, b, result)
 #endif
 
+struct _m128i_2 {
+    _m128i x;
+    _m128i y;
+};
+

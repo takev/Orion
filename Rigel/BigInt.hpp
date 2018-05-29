@@ -59,6 +59,20 @@ struct BigInt {
         memset(&digits[1], 0, (NR_DIGITS(N) - 1) * sizeof (uint64_t));
     }
 
+    inline size_t size(void) const {
+        return NR_DIGITS(N) * sizeof (uint64_t);
+    }
+
+    inline const char *data(void) const {
+        return reinterpret_cast<char *>(&digits[0]);
+    }
+
+    inline void toLittleEndian(void) {
+        for (int i = 0; i < NR_DIGITS(N); i++) {
+            digits[i] = boost::endian::native_to_little(digits[i]);
+        }
+    }
+
     inline bool getBit(int i) const {
         uint64_t d = digits[i / 64];
         return static_cast<bool>((d >> (i % 64)) & 1);
