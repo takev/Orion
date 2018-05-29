@@ -23,4 +23,6 @@ add_executable(BigIntTests BigIntTests.cpp)
 target_link_libraries(BigIntTests ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})
 add_test(BigIntTests BigIntTests)
 
-
+add_executable(SHA512Tests SHA512Tests.cpp SHA512.cpp)
+target_link_libraries(SHA512Tests ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})
+add_test(SHA512Tests SHA512Tests)

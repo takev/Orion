@@ -2,6 +2,8 @@
 #include <immintrin.h>
 #include <cassert>
 #include <ostream>
+//#include <boost/exception/exception.hpp>
+#include <boost/throw_exception.hpp>
 
 #include "utils.hpp"
 #include "int_utils.hpp"
@@ -9,7 +11,7 @@
 
 namespace Orion {
 namespace Rigel {
-namespace BigInt {
+
 #ifdef NR_DIGITS
 #error "NR_DIGITS macro is already defined"
 #endif
@@ -65,12 +67,6 @@ struct BigInt {
 
     inline const char *data(void) const {
         return reinterpret_cast<char *>(&digits[0]);
-    }
-
-    inline void toLittleEndian(void) {
-        for (int i = 0; i < NR_DIGITS(N); i++) {
-            digits[i] = boost::endian::native_to_little(digits[i]);
-        }
     }
 
     inline bool getBit(int i) const {
@@ -624,4 +620,4 @@ struct BarretReduction {
 };
 
 #undef NR_DIGITS
-};};};
+};};

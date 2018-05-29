@@ -9,7 +9,7 @@
 
 using namespace std;
 using namespace boost;
-using namespace Orion::Rigel::BigInt;
+using namespace Orion::Rigel;
 
 BOOST_AUTO_TEST_CASE(TestStringInitialization)
 {
