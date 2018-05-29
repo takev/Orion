@@ -17,8 +17,8 @@ BOOST_AUTO_TEST_CASE(TestSHA512)
     BOOST_CHECK_EQUAL(SHA512("").finish(), BigInt<512>("0xcf83e1357eefb8bd f1542850d66d8007 d620e4050b5715dc 83f4a921d36ce9ce 47d0d13c5d85f2b0 ff8318d2877eec2f 63b931bd47417a81 a538327af927da3e"));
     BOOST_CHECK_EQUAL(SHA512("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq").finish(), BigInt<512>("0x204a8fc6dda82f0a 0ced7beb8e08a416 57c16ef468b228a8 279be331a703c335 96fd15c13b1b07f9 aa1d3bea57789ca0 31ad85c7a71dd703 54ec631238ca3445"));
 
-    //                                 1         2         3         4         5         6         7         8         9         0         1         2
-    //                        123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+    //                                 1         2         3         4         5         6         7         8         9         0         1         2         3
+    //                        1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
     BOOST_CHECK_EQUAL(SHA512("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").finish(), BigInt<512>("0x9814d48ae1bfd731b32f0a829f20507ec9bd6b77609053718f7e2053b53c7a264bbab6a96d3d54a7f9a736570d11b1f99afb1735149f43cfee9b6f87886d3ff6"));
     BOOST_CHECK_EQUAL(SHA512("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").finish(), BigInt<512>("0xc1b0f5c6d3b03dfe4a2602e67242f54e344090b66e01100a469b129f583f016c7e27dddeaa438393dcc7ec54b0b57c9ba7af007f9b56db5f6fb677d972a31362"));
     BOOST_CHECK_EQUAL(SHA512("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").finish(), BigInt<512>("0x01d35c10c6c38c2dcf48f7eebb3235fb5ad74a65ec4cd016e2354c637a8fb49b695ef3c1d6f7ae4cd74d78cc9c9bcac9d4f23a73019998a7f73038a5c9b2dbde"));
@@ -31,6 +31,20 @@ BOOST_AUTO_TEST_CASE(TestSHA512)
     BOOST_CHECK_EQUAL(SHA512("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").finish(), BigInt<512>("0x55ddd8ac210a6e18ba1ee055af84c966e0dbff091c43580ae1be703bdb85da31acf6948cf5bd90c55a20e5450f22fb89bd8d0085e39f85a86cc46abbca75e24d"));
 
     BOOST_CHECK_EQUAL(SHA512("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu").finish(), BigInt<512>("0x8e959b75dae313da 8cf4f72814fc143f 8f7779c6eb9f7fa1 7299aeadb6889018 501d289e4900f7e4 331b99dec4b5433a c7d329eeb6dd2654 5e96e55b874be909"));
+
+    {
+        // Fast chunks.
+        //                1         2         3         4         5         6         7         8         9         0         1         2         3
+        //       1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+        auto H = SHA512();
+        for (int i = 0; i < 2; i++) {
+            H.add(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            );
+        }
+        BOOST_CHECK_EQUAL(H.finish(), BigInt<512>("0x0210d27bcbe05c2156627c5f136ade1338ab98e06a4591a00b0bcaa61662a5931d0b3bd41a67b5c140627923f5f6307669eb508d8db38b2a8cd41aebd783394b"));
+    }
 
     {
         // one million (1,000,000) repetitions of the character "a" (0x61).

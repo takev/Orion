@@ -1,8 +1,8 @@
 
-
 #include <immintrin.h>
 #include <boost/endian/conversion.hpp>
 #include "SHA512.hpp"
+#include "int_utils.hpp"
 
 namespace Orion {
 namespace Rigel {
@@ -132,20 +132,39 @@ void SHA512::add(const char *buffer, size_t bufferSize)
 
     // Handle the first chunk, there is at least one, because of the previous check.
     size_t firstPartSize = 128 - overflowBufferSize;
-    memcpy(chunk, overflowBuffer, overflowBufferSize);
-    memcpy(&chunk[overflowBufferSize], buffer, firstPartSize);
-    SHA512ProcessChunk(state, chunk64);
+    if ((overflowBufferSize == 0) && isAlignedTo<uint64_t>(buffer)) {
+        // Optimized for aligned buffer.
+        auto buffer64 = reinterpret_cast<const uint64_t *>(buffer);
+        SHA512ProcessChunk(state, buffer64);
+
+    } else {
+        memcpy(chunk, overflowBuffer, overflowBufferSize);
+        memcpy(&chunk[overflowBufferSize], buffer, firstPartSize);
+        SHA512ProcessChunk(state, chunk64);
+    }
 
     size_t todo = bufferSize - firstPartSize;
     size_t done = firstPartSize;
 
     // Handle all the full chunks.
-    while (todo >= 128) {
-        memcpy(chunk, &buffer[done], 128);
-        SHA512ProcessChunk(state, chunk64);
+    if (isAlignedTo<uint64_t>(&buffer[done])) {
+        // Optimized for aligned buffer.
+        while (todo >= 128) {
+            auto buffer64 = reinterpret_cast<const uint64_t *>(&buffer[done]);
+            SHA512ProcessChunk(state, buffer64);
 
-        done += 128;
-        todo -= 128;
+            done += 128;
+            todo -= 128;
+        }
+
+    } else {
+        while (todo >= 128) {
+            memcpy(chunk, &buffer[done], 128);
+            SHA512ProcessChunk(state, chunk64);
+
+            done += 128;
+            todo -= 128;
+        }
     }
 
     // Save the non-full chunk, for next add() or finish().
