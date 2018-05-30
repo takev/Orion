@@ -1,4 +1,4 @@
-
+#pragma once
 #include <boost/none.hpp>
 #include <cstdint>
 #include <vector>

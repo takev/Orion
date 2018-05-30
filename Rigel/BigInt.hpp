@@ -1,9 +1,11 @@
+#pragma once
 #include <xmmintrin.h>
 #include <immintrin.h>
 #include <cassert>
 #include <ostream>
-//#include <boost/exception/exception.hpp>
+#include <algorithm>
 #include <boost/throw_exception.hpp>
+#include <boost/endian/conversion.hpp>
 
 #include "utils.hpp"
 #include "int_utils.hpp"
@@ -40,7 +42,7 @@ struct BigInt {
     /** Explicit conversion for static_cast();
      */
     template<int O>
-    explicit inline BigInt(BigInt<O> &other) {
+    explicit inline BigInt(const BigInt<O> &other) {
         for (int i = 0; i < NR_DIGITS(N); i++) {
             digits[i] = (i < NR_DIGITS(O)) ? other.digits[i] : 0;
         }
@@ -66,7 +68,17 @@ struct BigInt {
     }
 
     inline const char *data(void) const {
-        return reinterpret_cast<char *>(&digits[0]);
+        return reinterpret_cast<const char *>(&digits[0]);
+    }
+
+    inline BigInt<N> toLittleEndian(void) const {
+        BigInt<N> tmp;
+
+        for (int i = 0; i < NR_DIGITS(N); i++) {
+            tmp.digits[i] = boost::endian::native_to_little(digits[i]);
+        }
+
+        return tmp;
     }
 
     inline bool getBit(int i) const {
@@ -328,9 +340,10 @@ struct BigInt {
         return BigInt<B>(remainder);
     }
 
-    inline BigInt<N> modularPower(const BigInt<N> &exponent, const BarretReduction<N> &br) {
-        auto one = BigInt<N>(1);
-        auto result = BigInt<N>(1);
+    template<int K>
+    inline BigInt<N> modularPower(const BigInt<N> &exponent, const BarretReduction<K> &br) const {
+        auto one = BigInt<K>(1);
+        auto result = BigInt<K>(1);
 
         auto base = br.modulo(*this);
         for (int i = 0; i < N; i++) {
@@ -340,11 +353,11 @@ struct BigInt {
             base = br.modulo(base * base);
         }
 
-        return result;
+        return BigInt<N>(result);
     }
 
-    inline BigInt<N> modularPower(const BigInt<N> &exponent, const BigInt<N> &modulus) {
-        auto br = BarretReduction<N>(modulus);
+    inline BigInt<N> modularPower(const BigInt<N> &exponent, const BigInt<N> &modulus) const {
+        auto br = BarretReduction<N+1>(modulus);
         return modularPower(exponent, br);
     }
 
@@ -573,13 +586,16 @@ inline BigInt<N> BigIntHighbit(void) {
  *         quotient -= 1;
  *     }
  * ```
+ *
+ * @param K Barret Reduction parameter K, which should be modulo-width + 1.
  */
 template<int K>
 struct BarretReduction {
     BigInt<K> modulus;
     BigInt<2*K> r;
 
-    BarretReduction(const BigInt<K> &modulus) :
+    template<int M>
+    BarretReduction(const BigInt<M> &modulus) :
         modulus(modulus), r()
     {
         auto scaledOne = BigIntHighbit<2*K+1>();

@@ -1,44 +1,70 @@
 #pragma once
-
-#include <BigInt.hpp>
+#include "BigInt.hpp"
+#include "SHA512.hpp"
 
 namespace Orion {
 namespace Rigel {
 
 template<int M>
 class DiffieHellman {
+public:
     BigInt<M> g;
-    BarretReduction<M> br;
+    BarretReduction<M+1> br;
     BigInt<M> privateKey;
     BigInt<M> myPublicKey;
+    BigInt<M> theirPublicKey;
+    BigInt<M> sharedKey;
 
     inline DiffieHellman(const BigInt<M> &g, const BigInt<M> &m, const BigInt<M> &privateKey) :
-        g(g), br(BarretReduction<M>(m), privateKey(privateKey)
+        g(g), br(BarretReduction<M+1>(m)), privateKey(privateKey), myPublicKey(), theirPublicKey(), sharedKey()
     {
         myPublicKey = g.modularPower(privateKey, br);
     }
 
     inline DiffieHellman(const BigInt<M> &g, const BigInt<M> &m) :
-        g(g), br(BarretReduction<M>(m), privateKey(BigIntRandom<M>())
+        g(g), br(BarretReduction<M+1>(m)), privateKey(BigIntRandom<M>()), myPublicKey(), theirPublicKey(), sharedKey()
     {
         myPublicKey = g.modularPower(privateKey, br);
     }
 
-    inline __uint128_t getKeyMaterial(const BigInt<M> &theirPublicKey, const std::string &otherInfo) {
-        BigInt<M> sharedSecret = theirPublicKey.modularPower(privateKey, br);
+    inline void setTheirPublicKey(const BigInt<M> &theirPublicKey) {
+        this->theirPublicKey = theirPublicKey;
+        sharedKey = theirPublicKey.modularPower(privateKey, br);
+    }
 
-        auto H = SHAVite3();
-        sharedSecret.toLittleEndian();
-        H.addData(sharedSecret.data(), sharedSecret.size());
-        H.addData(otherInfo.data(), otherInfo.size());
-        H.finish();
-        return H.getUint128();
+    inline BigInt<512> getKeyingMaterial(const char *otherInfo, size_t otherInfoSize) {
+        auto tmp = sharedKey.toLittleEndian();
+        auto H = SHA512();
+        H.add(tmp.data(), tmp.size());
+        H.add(otherInfo, otherInfoSize);
+        return H.finish();
+    }
+
+    inline BigInt<512> getKeyingMaterial(const std::string &otherInfo) {
+        return getKeyingMaterial(otherInfo.data(), otherInfo.size());
+    }
+
+    inline BigInt<512> getKeyingMaterial(void) {
+        return getKeyingMaterial(NULL, 0);
     }
 };
 
+// RFC-3526 Group-5
+const auto group_5_g = BigInt<1536>("2");
+const auto group_5_m = BigInt<1536>(
+ "0xFFFFFFFF FFFFFFFF C90FDAA2 2168C234 C4C6628B 80DC1CD1"
+   "29024E08 8A67CC74 020BBEA6 3B139B22 514A0879 8E3404DD"
+   "EF9519B3 CD3A431B 302B0A6D F25F1437 4FE1356D 6D51C245"
+   "E485B576 625E7EC6 F44C42E9 A637ED6B 0BFF5CB6 F406B7ED"
+   "EE386BFB 5A899FA5 AE9F2411 7C4B1FE6 49286651 ECE45B3D"
+   "C2007CB8 A163BF05 98DA4836 1C55D39A 69163FA8 FD24CF5F"
+   "83655D23 DCA3AD96 1C62F356 208552BB 9ED52907 7096966D"
+   "670C354E 4ABC9804 F1746C08 CA237327 FFFFFFFF FFFFFFFF"
+);
+
 // RFC-3526 Group-16
-auto group_16_g = BigInt<4096>("2");
-auto group_16_m = BigInt<4096>(
+const auto group_16_g = BigInt<4096>("2");
+const auto group_16_m = BigInt<4096>(
   "0xFFFFFFFF FFFFFFFF C90FDAA2 2168C234 C4C6628B 80DC1CD1"
     "29024E08 8A67CC74 020BBEA6 3B139B22 514A0879 8E3404DD"
     "EF9519B3 CD3A431B 302B0A6D F25F1437 4FE1356D 6D51C245"
@@ -64,8 +90,8 @@ auto group_16_m = BigInt<4096>(
 );
 
 // RFC-3526 Group-17
-auto group_17_g = BigInt<6144>("2");
-auto group_17_m = BigInt<6144>(
+const auto group_17_g = BigInt<6144>("2");
+const auto group_17_m = BigInt<6144>(
   "0xFFFFFFFF FFFFFFFF C90FDAA2 2168C234 C4C6628B 80DC1CD1 29024E08"
     "8A67CC74 020BBEA6 3B139B22 514A0879 8E3404DD EF9519B3 CD3A431B"
     "302B0A6D F25F1437 4FE1356D 6D51C245 E485B576 625E7EC6 F44C42E9"
@@ -97,8 +123,8 @@ auto group_17_m = BigInt<6144>(
 );
 
 // RFC-3526 Group-18
-auto group_18_g = BigInt<8192>("2");
-auto group_18_m = BigInt<8192>(
+const auto group_18_g = BigInt<8192>("2");
+const auto group_18_m = BigInt<8192>(
   "0xFFFFFFFF FFFFFFFF C90FDAA2 2168C234 C4C6628B 80DC1CD1"
     "29024E08 8A67CC74 020BBEA6 3B139B22 514A0879 8E3404DD"
     "EF9519B3 CD3A431B 302B0A6D F25F1437 4FE1356D 6D51C245"

@@ -1,4 +1,4 @@
-
+#pragma once
 #include <wmmintrin.h>
 
 #include "BigInt.hpp"
