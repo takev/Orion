@@ -97,15 +97,17 @@ public:
         __m128i cypher6;
         __m128i cypher7;
 
-#define AES128_ROUND0(x)\
-        {\
-            auto offset = _mm_set_epi64x(0, x * sizeof(__uint128_t));\
-            auto cypher ## x = _mm_add_epi64(counter, offset);\
-            cypher ## x = _mm_xor_si128(cypher ## x, key);\
-        }
 
         {
             auto key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[0]));
+
+#define AES128_ROUND0(x)\
+        {\
+            auto offset = _mm_set_epi64x(0, x * sizeof(__uint128_t));\
+            cypher ## x = _mm_add_epi64(counter, offset);\
+            cypher ## x = _mm_xor_si128(cypher ## x, key);\
+        }
+
             switch (nrBlocks) {
             case 8: AES128_ROUND0(7)
             case 7: AES128_ROUND0(6)
@@ -117,6 +119,7 @@ public:
             case 1: AES128_ROUND0(0)
             default: break;
             }
+#undef AES128_ROUND0
         }
 
 #define AES128_ROUND(instruction, x)\
@@ -155,9 +158,9 @@ public:
                 auto blockHi = _mm_extract_epi64(block, 1);\
                 CRC = _mm_crc32_u64(CRC, blockLo);\
                 CRC = _mm_crc32_u64(CRC, blockHi);\
-                _mm_xor_si128(block, cypher ## x);\
+                block = _mm_xor_si128(block, cypher ## x);\
             } else {\
-                _mm_xor_si128(block, cypher ## x);\
+                block = _mm_xor_si128(block, cypher ## x);\
                 auto blockLo = _mm_cvtsi128_si64(block);\
                 auto blockHi = _mm_extract_epi64(block, 1);\
                 if (SCRUB_CRC && x == 0) { blockHi &= 0x00000000ffffffff; }\
@@ -199,12 +202,12 @@ public:
         uint32_t CRC = 0xffffffff;
 
         while (todo >= 8) {
-            CRC = AES128CTRProcess8Blocks<false, false>(CRC, counter, &dst[done], &src[done], 8);
+            CRC = AES128CTRProcess8Blocks<true, false>(CRC, counter, &dst[done], &src[done], 8);
             todo-= 8;
             done+= 8;
         }
 
-        CRC = AES128CTRProcess8Blocks<false, false>(CRC, counter, &dst[done], &src[done], todo);
+        CRC = AES128CTRProcess8Blocks<true, false>(CRC, counter, &dst[done], &src[done], todo);
 
         return CRC ^ 0xfffffff;
     }
@@ -226,17 +229,17 @@ public:
         uint32_t CRC = 0xffffffff;
 
         auto firstNrBlocks = std::min(todo, static_cast<size_t>(8));
-        CRC = AES128CTRProcess8Blocks<true, SCRUB_CRC>(CRC, counter, &dst[done], &src[done], firstNrBlocks);
+        CRC = AES128CTRProcess8Blocks<false, SCRUB_CRC>(CRC, counter, &dst[done], &src[done], firstNrBlocks);
         done += firstNrBlocks;
         todo -= firstNrBlocks;
 
         if (todo >= 8) {
-            CRC = AES128CTRProcess8Blocks<true, false>(CRC, counter, &dst[done], &src[done], 8);
+            CRC = AES128CTRProcess8Blocks<false, false>(CRC, counter, &dst[done], &src[done], 8);
             todo-= 8;
             done+= 8;
         }
 
-        CRC = AES128CTRProcess8Blocks<true, false>(CRC, counter, &dst[done], &src[done], todo);
+        CRC = AES128CTRProcess8Blocks<false, false>(CRC, counter, &dst[done], &src[done], todo);
 
         return CRC ^ 0xffffffff;
     }
