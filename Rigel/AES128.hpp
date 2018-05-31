@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <algorithm>
 
 #include <smmintrin.h>
 #include <wmmintrin.h>
@@ -10,182 +11,6 @@
 
 namespace Orion {
 namespace Rigel {
-
-struct MMXText {
-    __m128i v[8];
-
-    static size_t nrBlocks(void) {
-        return sizeof(v) / sizeof(*v);
-    }
-};
-
-/** Encrypts 4 counter values in parralel.
- * 
- * @param keyRounds 11 MMX registers containing all the key-rounds.
- * @param counter MMX Register containing a 64-bit counter (lsb), and 64 bit nonce (msb). Counter is incremented
- *        by 64 (4 blocks of 16 bytes) in-place.
- * @return 4 MMX registers with four different (incremented by 16) counter+nonce values.
- */
-static inline MMXText AES128EncryptCounter(const __uint128_t *keyRounds, __m128i &counter)
-{
-    MMXText cypher;
-
-    // Round 0
-    {
-        const auto blockSize = _mm_set_epi64x(0, sizeof(__uint128_t));
-        auto key = _mm_load_si128(reinterpret_cast<const __m128i *>(keyRounds[0]));
-        cypher.v[0] = _mm_xor_si128(counter, key);
-        counter = _mm_add_epi64(counter, blockSize);
-        cypher.v[1] = _mm_xor_si128(counter, key);
-        counter = _mm_add_epi64(counter, blockSize);
-        cypher.v[2] = _mm_xor_si128(counter, key);
-        counter = _mm_add_epi64(counter, blockSize);
-        cypher.v[3] = _mm_xor_si128(counter, key);
-        counter = _mm_add_epi64(counter, blockSize);
-        cypher.v[4] = _mm_xor_si128(counter, key);
-        counter = _mm_add_epi64(counter, blockSize);
-        cypher.v[5] = _mm_xor_si128(counter, key);
-        counter = _mm_add_epi64(counter, blockSize);
-        cypher.v[6] = _mm_xor_si128(counter, key);
-        counter = _mm_add_epi64(counter, blockSize);
-        cypher.v[7] = _mm_xor_si128(counter, key);
-        counter = _mm_add_epi64(counter, blockSize);
-    }
-
-#define AES128_ROUND(instruction, x)\
-    {\
-        auto key = _mm_load_si128(reinterpret_cast<const __m128i *>(keyRounds[x]));\
-        cypher.v[0] = instruction(cypher.v[0], key);\
-        cypher.v[1] = instruction(cypher.v[1], key);\
-        cypher.v[2] = instruction(cypher.v[2], key);\
-        cypher.v[3] = instruction(cypher.v[3], key);\
-        cypher.v[4] = instruction(cypher.v[4], key);\
-        cypher.v[5] = instruction(cypher.v[5], key);\
-        cypher.v[6] = instruction(cypher.v[6], key);\
-        cypher.v[7] = instruction(cypher.v[7], key);\
-    }
-
-    AES128_ROUND(_mm_aesenc_si128, 1);
-    AES128_ROUND(_mm_aesenc_si128, 2);
-    AES128_ROUND(_mm_aesenc_si128, 3);
-    AES128_ROUND(_mm_aesenc_si128, 4);
-    AES128_ROUND(_mm_aesenc_si128, 5);
-    AES128_ROUND(_mm_aesenc_si128, 6);
-    AES128_ROUND(_mm_aesenc_si128, 7);
-    AES128_ROUND(_mm_aesenc_si128, 8);
-    AES128_ROUND(_mm_aesenc_si128, 9);
-    AES128_ROUND(_mm_aesenclast_si128, 10);
-#undef AES128_ROUND
-
-    // Return encrypted counter.
-    return cypher;
-}
-
-/** Encrypt 128-bit blocks in CTR-mode.
- *
- * @param keyRounds 11 MMX Registers holding the AES key-rounds.
- * @param counter 1 MMX Register containing nonce+counter value, where the lower 64 bits is incremented/rolled-over,
- *        the higher 64 bits remain untouched.
- * @param crc The crc value from previous processing.
- * @param dst Destination buffer with the encrypted data. Src and dst may alias.
- * @param src Source buffer with the plain-text data. Src and dst may alias.
- * @param size Number of bytes in dst and src, does not need to be a multiple of 16 bytes.
- * @return CRC-32C of the plain-text data.
- */
-static inline uint32_t AES128CTREncryptBlocks(const __uint128_t *keyRounds, __m128i &counter, uint32_t crc, __uint128_t *dst, const __uint128_t *src, size_t size)
-{
-    auto cypherText = AES128EncryptCounter(keyRounds, counter);
-
-    auto nrBlocks = size / sizeof(__uint128_t);
-    auto nrLastBytes = size % sizeof(__uint128_t);
-
-    size_t blockNr;
-    for (blockNr = 0; blockNr < nrBlocks; blockNr++) {
-        auto text = _mm_load_si128(reinterpret_cast<const __m128i *>(&src[blockNr]));
-        auto textLo = _mm_cvtsi128_si64(text);
-        auto textHi = _mm_extract_epi64(text, 1);
-
-        crc = static_cast<uint32_t>(_mm_crc32_u64(static_cast<uint64_t>(crc), textLo));
-        crc = static_cast<uint32_t>(_mm_crc32_u64(static_cast<uint64_t>(crc), textHi));
-
-        text = _mm_xor_si128(text, cypherText.v[blockNr]);
-        _mm_store_si128(reinterpret_cast<__m128i *>(&dst[blockNr]), text);
-    }
-
-    if (nrLastBytes) {
-        __uint128_t cypherTextBuffer128;
-        auto cypherTextBuffer8 = reinterpret_cast<uint8_t *>(&cypherTextBuffer128);
-        auto srcByteBuffer = reinterpret_cast<const uint8_t *>(&src[blockNr]);
-        auto dstByteBuffer = reinterpret_cast<uint8_t *>(&dst[blockNr]);
-
-        _mm_store_si128(reinterpret_cast<__m128i *>(&cypherTextBuffer128), cypherText.v[blockNr]);
-
-        for (size_t byteNr = 0; byteNr < nrLastBytes; byteNr++) {
-            auto byte = srcByteBuffer[byteNr];
-            crc = _mm_crc32_u8(crc, byte);
-            byte ^= cypherTextBuffer8[byteNr];
-            dstByteBuffer[byteNr] = byte;
-        }
-    }
-
-    return crc;
-}
-
-/** Decrypt 128-bit blocks in CTR-mode.
- *
- * @param keyRounds 11 MMX Registers holding the AES key-rounds.
- * @param counter 1 MMX Register containing nonce+counter value, where the lower 64 bits is incremented/rolled-over,
- *        the higher 64 bits remain untouched.
- * @param crc The crc value from previous processing.
- * @param dst Destination buffer with the plain-text data. Src and dst may alias.
- * @param src Source buffer with the encrypted data. Src and dst may alias.
- * @param size Number of bytes in dst and src, does not need to be a multiple of 16 bytes.
- * @param clearLast32BitsOfFirstBlock For use when the CRC was encrypted within the data, and need to be cleared.
- * @return CRC-32C of the plain-text data.
- */
-static inline uint32_t AES128CTRDecryptBlocks(const __uint128_t *keyRounds, __m128i &counter, uint32_t crc, __uint128_t *dst, const __uint128_t *src, size_t size, bool clearLast32BitsOfFirstBlock=false)
-{
-    auto cypherText = AES128EncryptCounter(keyRounds, counter);
-
-    auto nrBlocks = size / sizeof(__uint128_t);
-    auto nrLastBytes = size % sizeof(__uint128_t);
-
-    size_t blockNr;
-    for (blockNr = 0; blockNr < nrBlocks; blockNr++) {
-        auto text = _mm_load_si128(reinterpret_cast<const __m128i *>(&src[blockNr]));
-        text = _mm_xor_si128(text, cypherText.v[blockNr]);
-        _mm_store_si128(reinterpret_cast<__m128i *>(&dst[blockNr]), text);
-
-        auto textLo = _mm_cvtsi128_si64(text);
-        auto textHi = _mm_extract_epi64(text, 1);
-
-        // Clear the encrypted CRC value.
-        if (clearLast32BitsOfFirstBlock && blockNr == 0) {
-            textHi &= 0x00000000ffffffff;
-        }
-
-        crc = static_cast<uint32_t>(_mm_crc32_u64(static_cast<uint64_t>(crc), textLo));
-        crc = static_cast<uint32_t>(_mm_crc32_u64(static_cast<uint64_t>(crc), textHi));
-    }
-
-    if (nrLastBytes) {
-        __uint128_t cypherTextBuffer128;
-        auto cypherTextBuffer8 = reinterpret_cast<uint8_t *>(&cypherTextBuffer128);
-        auto srcByteBuffer = reinterpret_cast<const uint8_t *>(&src[blockNr]);
-        auto dstByteBuffer = reinterpret_cast<uint8_t *>(&dst[blockNr]);
-
-        _mm_store_si128(reinterpret_cast<__m128i *>(&cypherTextBuffer128), cypherText.v[blockNr]);
-
-        for (size_t byteNr = 0; byteNr < nrLastBytes; byteNr++) {
-            auto byte = srcByteBuffer[byteNr];
-            byte ^= cypherTextBuffer8[byteNr];
-            crc = _mm_crc32_u8(crc, byte);
-            dstByteBuffer[byteNr] = byte;
-        }
-    }
-
-    return crc;
-}
 
 static inline __m128i AES128KeyGenPart2(__m128i tmp1, __m128i tmp2)
 {
@@ -246,6 +71,118 @@ public:
 #undef AES128_KEYGEN_ROUND
     }
 
+    /** Process a buffer of up to 8 128-bit blocks in parralel.
+     *
+     * @param ENCRYPT true if encrypting, false if decrypting.
+     * @param SCRUB_CRC Don't take the CRC in the encrypted message into account
+     *        when calculating the CRC. The CRC in the encrypted message is located
+     *        in the last 32-bit word of the first 128-bit block.
+     * @param CRC The CRC calculated from a previous call.
+     * @param counter MMX Register containing a 64-bit counter (lsb), and 64 bit nonce (msb). Counter is incremented
+     *        by 64 (4 blocks of 16 bytes) in-place.
+     * @param dst Destination buffer. dst and src may alias.
+     * @param src Source buffer. dst and src may alias.
+     * @param nrBlock Number of 128-bit blocks to process. nrBlocks must be between 1 and 8 (inclusive).
+     * @return CRC-32C Result of the plain-text data.
+     */
+    template<bool ENCRYPT, bool SCRUB_CRC>
+    inline uint32_t AES128CTRProcess8Blocks(uint32_t CRC, __m128i &counter, __uint128_t *dst, const __uint128_t *src, int nrBlocks)
+    {
+        __m128i cypher0;
+        __m128i cypher1;
+        __m128i cypher2;
+        __m128i cypher3;
+        __m128i cypher4;
+        __m128i cypher5;
+        __m128i cypher6;
+        __m128i cypher7;
+
+#define AES128_ROUND0(x)\
+        {\
+            auto offset = _mm_set_epi64x(0, x * sizeof(__uint128_t));\
+            auto cypher ## x = _mm_add_epi64(counter, offset);\
+            cypher ## x = _mm_xor_si128(cypher ## x, key);\
+        }
+
+        {
+            auto key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[0]));
+            switch (nrBlocks) {
+            case 8: AES128_ROUND0(7)
+            case 7: AES128_ROUND0(6)
+            case 6: AES128_ROUND0(5)
+            case 5: AES128_ROUND0(4)
+            case 4: AES128_ROUND0(3)
+            case 3: AES128_ROUND0(2)
+            case 2: AES128_ROUND0(1)
+            case 1: AES128_ROUND0(0)
+            default: break;
+            }
+        }
+
+#define AES128_ROUND(instruction, x)\
+        {\
+            auto key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[x]));\
+            switch (nrBlocks) {\
+            case 8: cypher7 = instruction(cypher7, key);\
+            case 7: cypher6 = instruction(cypher6, key);\
+            case 6: cypher5 = instruction(cypher5, key);\
+            case 5: cypher4 = instruction(cypher4, key);\
+            case 4: cypher3 = instruction(cypher3, key);\
+            case 3: cypher2 = instruction(cypher2, key);\
+            case 2: cypher1 = instruction(cypher1, key);\
+            case 1: cypher0 = instruction(cypher0, key);\
+            default: break;\
+            }\
+        }
+
+        AES128_ROUND(_mm_aesenc_si128, 1);
+        AES128_ROUND(_mm_aesenc_si128, 2);
+        AES128_ROUND(_mm_aesenc_si128, 3);
+        AES128_ROUND(_mm_aesenc_si128, 4);
+        AES128_ROUND(_mm_aesenc_si128, 5);
+        AES128_ROUND(_mm_aesenc_si128, 6);
+        AES128_ROUND(_mm_aesenc_si128, 7);
+        AES128_ROUND(_mm_aesenc_si128, 8);
+        AES128_ROUND(_mm_aesenc_si128, 9);
+        AES128_ROUND(_mm_aesenclast_si128, 10);
+#undef AES128_ROUND
+
+#define AES128_XOR_BLOCK(x)\
+        {\
+            auto block = _mm_load_si128(reinterpret_cast<const __m128i *>(&src[x]));\
+            if (ENCRYPT) {\
+                auto blockLo = _mm_cvtsi128_si64(block);\
+                auto blockHi = _mm_extract_epi64(block, 1);\
+                CRC = _mm_crc32_u64(CRC, blockLo);\
+                CRC = _mm_crc32_u64(CRC, blockHi);\
+                _mm_xor_si128(block, cypher ## x);\
+            } else {\
+                _mm_xor_si128(block, cypher ## x);\
+                auto blockLo = _mm_cvtsi128_si64(block);\
+                auto blockHi = _mm_extract_epi64(block, 1);\
+                if (SCRUB_CRC && x == 0) { blockHi &= 0x00000000ffffffff; }\
+                CRC = _mm_crc32_u64(CRC, blockLo);\
+                CRC = _mm_crc32_u64(CRC, blockHi);\
+            }\
+            _mm_store_si128(reinterpret_cast<__m128i *>(&dst[x]), block);\
+        }
+
+        if (nrBlocks >= 1) AES128_XOR_BLOCK(0)
+        if (nrBlocks >= 2) AES128_XOR_BLOCK(1)
+        if (nrBlocks >= 3) AES128_XOR_BLOCK(2)
+        if (nrBlocks >= 4) AES128_XOR_BLOCK(3)
+        if (nrBlocks >= 5) AES128_XOR_BLOCK(4)
+        if (nrBlocks >= 6) AES128_XOR_BLOCK(5)
+        if (nrBlocks >= 7) AES128_XOR_BLOCK(6)
+        if (nrBlocks == 8) AES128_XOR_BLOCK(7)
+#undef AES128_XOR_BLOCK
+
+        auto offset = _mm_set_epi64x(0, nrBlocks * sizeof(__uint128_t));\
+        counter = _mm_add_epi64(counter, offset);
+
+        return CRC;
+    }
+
     /** Encrypt buffer.
      *
      * @param counter CTR counter+nonce value at start of buffer.
@@ -254,22 +191,22 @@ public:
      * @param size Size of the src and dst buffers in bytes.
      * @return CRC-32C value of the src buffer.
      */
-    inline uint32_t CTREncrypt(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t size)
+    inline uint32_t CTREncrypt(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t nrBlocks)
     {
         auto counter = _mm_load_si128(reinterpret_cast<__m128i *>(&_counter));
-        size_t todo = size;
-        size_t blockNr = 0;
-        uint32_t crc = 0xffffffff;
+        size_t todo = nrBlocks;
+        size_t done = 0;
+        uint32_t CRC = 0xffffffff;
 
-        while (todo >= sizeof (MMXText)) {
-            crc = AES128CTREncryptBlocks(keyRounds, counter, crc, &dst[blockNr], &src[blockNr], sizeof (MMXText));
-            todo-= sizeof (MMXText);
-            blockNr+= MMXText::nrBlocks();
+        while (todo >= 8) {
+            CRC = AES128CTRProcess8Blocks<false, false>(CRC, counter, &dst[done], &src[done], 8);
+            todo-= 8;
+            done+= 8;
         }
 
-        crc = AES128CTREncryptBlocks(keyRounds, counter, crc, &dst[blockNr], &src[blockNr], todo);
+        CRC = AES128CTRProcess8Blocks<false, false>(CRC, counter, &dst[done], &src[done], todo);
 
-        return crc ^ 0xfffffff;
+        return CRC ^ 0xfffffff;
     }
 
     /** Decrypt buffer.
@@ -280,31 +217,28 @@ public:
      * @param size Size of the src and dst buffers in bytes.
      * @return CRC-32C value of the dst buffer.
      */
-    uint32_t CTRDecrypt(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t size, bool clearLast32BitsOfFirstBlock=false)
+    template<bool SCRUB_CRC>
+    uint32_t CTRDecrypt(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t nrBlocks)
     {
         auto counter = _mm_load_si128(reinterpret_cast<__m128i *>(&_counter));
-        size_t todo = size;
-        size_t blockNr = 0;
-        uint32_t crc = 0xffffffff;
+        size_t todo = nrBlocks;
+        size_t done = 0;
+        uint32_t CRC = 0xffffffff;
 
-        if (todo >= sizeof (MMXText)) {
-            crc = AES128CTRDecryptBlocks(keyRounds, counter, crc, &dst[blockNr], &src[blockNr], sizeof (MMXText), clearLast32BitsOfFirstBlock);
-            todo-= sizeof (MMXText);
-            blockNr+= MMXText::nrBlocks();
+        auto firstNrBlocks = std::min(todo, static_cast<size_t>(8));
+        CRC = AES128CTRProcess8Blocks<true, SCRUB_CRC>(CRC, counter, &dst[done], &src[done], firstNrBlocks);
+        done += firstNrBlocks;
+        todo -= firstNrBlocks;
 
-            while (todo >= sizeof (MMXText)) {
-                crc = AES128CTRDecryptBlocks(keyRounds, counter, crc, &dst[blockNr], &src[blockNr], sizeof (MMXText));
-                todo-= sizeof (MMXText);
-                blockNr+= MMXText::nrBlocks();
-            }
-
-            crc = AES128CTRDecryptBlocks(keyRounds, counter, crc, &dst[blockNr], &src[blockNr], todo);
-
-        } else {
-            crc = AES128CTRDecryptBlocks(keyRounds, counter, crc, &dst[blockNr], &src[blockNr], todo, clearLast32BitsOfFirstBlock);
+        if (todo >= 8) {
+            CRC = AES128CTRProcess8Blocks<true, false>(CRC, counter, &dst[done], &src[done], 8);
+            todo-= 8;
+            done+= 8;
         }
 
-        return crc ^ 0xffffffff;
+        CRC = AES128CTRProcess8Blocks<true, false>(CRC, counter, &dst[done], &src[done], todo);
+
+        return CRC ^ 0xffffffff;
     }
 };
 
@@ -312,9 +246,9 @@ uint32_t AES128CompilerTest(__uint128_t key, __uint128_t counter, __uint128_t *b
 {
     auto C = AES128(key);
 
-    auto crc = C.CTREncrypt(counter, buffer, buffer, buffer_size);
+    auto CRC = C.CTREncrypt(counter, buffer, buffer, buffer_size);
 
-    return crc;
+    return CRC;
 }
 
 
