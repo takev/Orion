@@ -30,3 +30,8 @@ add_test(SHA512Tests SHA512Tests)
 add_executable(DiffieHellmanTests DiffieHellmanTests.cpp SHA512.cpp)
 target_link_libraries(DiffieHellmanTests ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})
 add_test(DiffieHellmanTests DiffieHellmanTests)
+
+add_executable(AES128Tests AES128Tests.cpp)
+target_link_libraries(AES128Tests ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})
+add_test(AES128Tests AES128Tests)
+
