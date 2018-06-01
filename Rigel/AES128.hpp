@@ -41,6 +41,72 @@ static inline __m128i AES128KeyGenPart2(__m128i tmp1, __m128i tmp2)
     return tmp1;
 }
 
+template<bool ENCRYPT>
+static inline uint32_t AES128XorPartialBlock(uint32_t CRC, size_t nrBytes, __uint128_t &dst, const __uint128_t &src, __m128i cypher)
+{
+    __uint128_t cypher128;
+    auto cypher8 = reinterpret_cast<uint8_t *>(&cypher128);
+    auto src8 = reinterpret_cast<const uint8_t *>(&src);
+    auto dst8 = reinterpret_cast<uint8_t *>(&dst);
+
+    _mm_store_si128(reinterpret_cast<__m128i *>(&cypher128), cypher);
+
+    for (size_t i = 0; i < nrBytes; i++) {
+        auto byte = src8[i];
+        if (ENCRYPT) {
+            CRC = _mm_crc32_u8(CRC, byte);
+            byte ^= cypher8[i];
+        } else {
+            byte ^= cypher8[i];
+            CRC = _mm_crc32_u8(CRC, byte);
+        }
+        dst8[i] = byte;
+    }
+
+    return CRC;
+}
+
+template<bool ENCRYPT, bool SCRUB_CRC>
+static inline uint32_t AES128XorFullBlock(uint32_t CRC, __uint128_t &dst, const __uint128_t &src, __m128i cypher)
+{
+    auto block = _mm_load_si128(reinterpret_cast<const __m128i *>(&src));
+
+    uint64_t blockLo;
+    uint64_t blockHi;
+    if (ENCRYPT) {
+        blockLo = _mm_cvtsi128_si64(block);
+        blockHi = _mm_extract_epi64(block, 1);
+        CRC = _mm_crc32_u64(CRC, blockLo);
+        CRC = _mm_crc32_u64(CRC, blockHi);
+
+        block = _mm_xor_si128(block, cypher);
+    } else {
+        block = _mm_xor_si128(block, cypher);
+
+        blockLo = _mm_cvtsi128_si64(block);
+        blockHi = SCRUB_CRC ? _mm_extract_epi32(block, 2) : _mm_extract_epi64(block, 1);
+
+        CRC = _mm_crc32_u64(CRC, blockLo);
+        CRC = _mm_crc32_u64(CRC, blockHi);
+    }
+
+    _mm_store_si128(reinterpret_cast<__m128i *>(&dst), block);
+
+    return CRC;
+}
+
+template<bool ENCRYPT, bool SCRUB_CRC, int X>
+static inline uint32_t AES128XorBlock(uint32_t CRC, size_t nrBlocks, size_t nrBytes, __uint128_t &dst, const __uint128_t &src, __m128i cypher)
+{
+    if (nrBlocks >= X && nrBytes < 16) {
+        return AES128XorPartialBlock<ENCRYPT>(CRC, nrBytes, dst, src, cypher);
+    } else if (nrBlocks >= X) {
+        return AES128XorFullBlock<ENCRYPT, SCRUB_CRC && X == 0>(CRC, dst, src, cypher);
+    } else {
+        return CRC;
+    }
+}
+
 class AES128 {
     __uint128_t key;
     __uint128_t keyRounds[11];    
@@ -86,8 +152,11 @@ public:
      * @return CRC-32C Result of the plain-text data.
      */
     template<bool ENCRYPT, bool SCRUB_CRC>
-    inline uint32_t AES128CTRProcess8Blocks(uint32_t CRC, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t nrBlocks)
+    inline uint32_t AES128CTRProcess8Blocks(uint32_t CRC, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t size)
     {
+        size_t nrBlocks = (size / sizeof (__uint128_t));
+        size_t nrBytes = size % sizeof (__uint128_t);
+
         __m128i cypher0;
         __m128i cypher1;
         __m128i cypher2;
@@ -119,10 +188,11 @@ public:
             counter = _mm_add_epi64(counter, blockSize);
         }
 
-#define AES128_ROUND(instruction, x)\
+#define AES128_ROUND(instruction, round)\
         {\
-            auto key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[x]));\
+            auto key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[round]));\
             switch (nrBlocks) {\
+            case 8:\
             case 7: cypher7 = instruction(cypher7, key);\
             case 6: cypher6 = instruction(cypher6, key);\
             case 5: cypher5 = instruction(cypher5, key);\
@@ -147,37 +217,17 @@ public:
 #undef AES128_ROUND
 
 #define AES128_XOR_BLOCK(x)\
-        {\
-            auto block = _mm_load_si128(reinterpret_cast<const __m128i *>(&src[x]));\
-            if (ENCRYPT) {\
-                auto blockLo = _mm_cvtsi128_si64(block);\
-                auto blockHi = _mm_extract_epi64(block, 1);\
-                CRC = _mm_crc32_u64(CRC, blockLo);\
-                CRC = _mm_crc32_u64(CRC, blockHi);\
-                block = _mm_xor_si128(block, cypher ## x);\
-            } else {\
-                block = _mm_xor_si128(block, cypher ## x);\
-                auto blockLo = _mm_cvtsi128_si64(block);\
-                auto blockHi = _mm_extract_epi64(block, 1);\
-                if (SCRUB_CRC && x == 0) { blockHi &= 0x00000000ffffffff; }\
-                CRC = _mm_crc32_u64(CRC, blockLo);\
-                CRC = _mm_crc32_u64(CRC, blockHi);\
-            }\
-            _mm_store_si128(reinterpret_cast<__m128i *>(&dst[x]), block);\
-        }
+        CRC = AES128XorBlock<ENCRYPT, SCRUB_CRC, x>(CRC, nrBlocks, nrBytes, dst[x], src[x], cypher ## x)
 
-        if (nrBlocks >= 0) AES128_XOR_BLOCK(0)
-        if (nrBlocks >= 1) AES128_XOR_BLOCK(1)
-        if (nrBlocks >= 2) AES128_XOR_BLOCK(2)
-        if (nrBlocks >= 3) AES128_XOR_BLOCK(3)
-        if (nrBlocks >= 4) AES128_XOR_BLOCK(4)
-        if (nrBlocks >= 5) AES128_XOR_BLOCK(5)
-        if (nrBlocks >= 6) AES128_XOR_BLOCK(6)
-        if (nrBlocks == 7) AES128_XOR_BLOCK(7)
+        AES128_XOR_BLOCK(0);
+        AES128_XOR_BLOCK(1);
+        AES128_XOR_BLOCK(2);
+        AES128_XOR_BLOCK(3);
+        AES128_XOR_BLOCK(4);
+        AES128_XOR_BLOCK(5);
+        AES128_XOR_BLOCK(6);
+        AES128_XOR_BLOCK(7);
 #undef AES128_XOR_BLOCK
-
-        auto offset = _mm_set_epi64x(0, nrBlocks * sizeof(__uint128_t));\
-        counter = _mm_add_epi64(counter, offset);
 
         return CRC;
     }
@@ -190,18 +240,20 @@ public:
      * @param size Size of the src and dst buffers in bytes.
      * @return CRC-32C value of the src buffer.
      */
-    inline uint32_t CTREncrypt(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t nrBlocks)
+    inline uint32_t CTREncrypt(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t size)
     {
         auto counter = _mm_load_si128(reinterpret_cast<__m128i *>(&_counter));
-        size_t todo = nrBlocks;
-        size_t done = 0;
+        size_t todo = size;
+        size_t blockNr = 0;
         uint32_t CRC = 0xffffffff;
 
         while (todo > 0) {
-			auto iterationNrBlocks = std::min(todo, static_cast<size_t>(8));
-            CRC = AES128CTRProcess8Blocks<true, false>(CRC, counter, &dst[done], &src[done], iterationNrBlocks - 1);
-            todo-= iterationNrBlocks;
-            done+= iterationNrBlocks;
+			auto iterationNrBytes = std::min(todo, 8 * sizeof(__uint128_t));
+
+            CRC = AES128CTRProcess8Blocks<true, false>(CRC, counter, &dst[blockNr], &src[blockNr], iterationNrBytes);
+
+            todo-= iterationNrBytes;
+            blockNr+= iterationNrBytes / sizeof(__uint128_t);
         }
 
         return CRC ^ 0xfffffff;
@@ -216,25 +268,29 @@ public:
      * @return CRC-32C value of the dst buffer.
      */
     template<bool SCRUB_CRC>
-    uint32_t CTRDecrypt(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t nrBlocks)
+    uint32_t CTRDecrypt(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t size)
     {
         auto counter = _mm_load_si128(reinterpret_cast<__m128i *>(&_counter));
-        size_t todo = nrBlocks;
-        size_t done = 0;
+        size_t todo = size;
+        size_t blockNr = 0;
         uint32_t CRC = 0xffffffff;
 
 		if (SCRUB_CRC) {
-			auto iterationNrBlocks = std::min(todo, static_cast<size_t>(8));
-			CRC = AES128CTRProcess8Blocks<false, true>(CRC, counter, &dst[done], &src[done], iterationNrBlocks - 1);
-			done += iterationNrBlocks;
-			todo -= iterationNrBlocks;
+			auto iterationNrBytes = std::min(todo, 8 * sizeof(__uint128_t));
+
+			CRC = AES128CTRProcess8Blocks<false, true>(CRC, counter, &dst[blockNr], &src[blockNr], iterationNrBytes);
+
+            todo-= iterationNrBytes;
+            blockNr+= iterationNrBytes / sizeof(__uint128_t);
 		}
 
         if (todo > 0) {
-			auto iterationNrBlocks = std::min(todo, static_cast<size_t>(8));
-            CRC = AES128CTRProcess8Blocks<false, false>(CRC, counter, &dst[done], &src[done], iterationNrBlocks - 1);
-			done += iterationNrBlocks;
-			todo -= iterationNrBlocks;
+			auto iterationNrBytes = std::min(todo, 8 * sizeof(__uint128_t));
+
+            CRC = AES128CTRProcess8Blocks<false, false>(CRC, counter, &dst[blockNr], &src[blockNr], iterationNrBytes);
+
+            todo-= iterationNrBytes;
+            blockNr+= iterationNrBytes / sizeof(__uint128_t);
         }
 
         return CRC ^ 0xffffffff;
