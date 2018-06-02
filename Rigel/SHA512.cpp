@@ -132,7 +132,7 @@ void SHA512::add(const char *buffer, size_t bufferSize)
 
     // Handle the first chunk, there is at least one, because of the previous check.
     size_t firstPartSize = 128 - overflowBufferSize;
-    if ((overflowBufferSize == 0) && isAlignedTo<uint64_t>(buffer)) {
+    if ((overflowBufferSize == 0) && isAligned<uint64_t>(buffer)) {
         // Optimized for aligned buffer.
         auto buffer64 = reinterpret_cast<const uint64_t *>(buffer);
         SHA512ProcessChunk(state, buffer64);
@@ -147,7 +147,7 @@ void SHA512::add(const char *buffer, size_t bufferSize)
     size_t done = firstPartSize;
 
     // Handle all the full chunks.
-    if (isAlignedTo<uint64_t>(&buffer[done])) {
+    if (isAligned<uint64_t>(&buffer[done])) {
         // Optimized for aligned buffer.
         while (todo >= 128) {
             auto buffer64 = reinterpret_cast<const uint64_t *>(&buffer[done]);

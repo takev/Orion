@@ -2,41 +2,20 @@
 
 #include <cstdint>
 #include <algorithm>
+#include <string>
 
 #include <smmintrin.h>
 #include <wmmintrin.h>
 #include <nmmintrin.h>
 #include <emmintrin.h>
 
+#include "int_utils.hpp"
 
 namespace Orion {
 namespace Rigel {
 
 static inline __m128i AES128KeyGenPart2(__m128i tmp1, __m128i tmp2)
 {
-    //pshufd tmp2, tmp2, 0xff
-    tmp2 = _mm_shuffle_epi32(tmp2, 0xff);
-
-    //vpslldq tmp3, tmp1, 0x4
-    auto tmp3 = _mm_slli_si128(tmp1, 0x4);
-
-    //pxor tmp1, tmp3
-    tmp1 = _mm_xor_si128(tmp1, tmp3);
-
-    //vpslldq tmp3, tmp1, 0x4
-    tmp3 = _mm_slli_si128(tmp1, 0x4);
-
-    //pxor tmp1, tmp3
-    tmp1 = _mm_xor_si128(tmp1, tmp3);
-
-    //vpslldq tmp3, tmp1, 0x4
-    tmp3 = _mm_slli_si128(tmp1, 0x4);
-
-    //pxor tmp1, tmp3
-    tmp1 = _mm_xor_si128(tmp1, tmp3);
-
-    //pxor tmp1, tmp2
-    tmp1 = _mm_xor_si128(tmp1, tmp2);
 
     return tmp1;
 }
@@ -44,13 +23,13 @@ static inline __m128i AES128KeyGenPart2(__m128i tmp1, __m128i tmp2)
 template<int BLOCK_NR>
 static inline __m128i AES128Round0(__m128i &counter, __m128i blockSize, __m128i key, size_t nrBlocks)
 {
+    __m128i cypher;
+
     if (BLOCK_NR < nrBlocks) {
-        auto cypher = _mm_xor_si128(counter, key);
+        cypher = _mm_xor_si128(counter, key);
         counter = _mm_add_epi64(counter, blockSize);
-        return cypher;
-    } else {
-        return _mm_undefined_si128();
     }
+    return cypher;
 }
 
 template<bool ENCRYPT, int BLOCK_NR>
@@ -85,30 +64,56 @@ class AES128 {
     __uint128_t key;
     __uint128_t keyRounds[11];    
 
-public:
-    inline AES128(__uint128_t key) :
-        key(key)
+    template<int ROUND, int RCON>
+    inline __m128i AES128KeygenExpansion(__m128i prev_key)
     {
-        __m128i tmp1 = _mm_load_si128(reinterpret_cast<__m128i *>(&key));
-        __m128i tmp2;
+        auto tmp2 = _mm_aeskeygenassist_si128(prev_key, RCON);
 
-#define AES128_KEYGEN_ROUND(x, rcon)\
-        tmp2 = _mm_aeskeygenassist_si128(tmp1, rcon);\
-        tmp1 = AES128KeyGenPart2(tmp1, tmp2);\
-        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[x]), tmp1);
+        //pshufd tmp2, tmp2, 0xff
+        auto tmp4 = _mm_shuffle_epi32(tmp2, 0xff);
 
-        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[0]), tmp1);
-        AES128_KEYGEN_ROUND(1, 0x01)
-        AES128_KEYGEN_ROUND(2, 0x02)
-        AES128_KEYGEN_ROUND(3, 0x04)
-        AES128_KEYGEN_ROUND(4, 0x08)
-        AES128_KEYGEN_ROUND(5, 0x10)
-        AES128_KEYGEN_ROUND(6, 0x20)
-        AES128_KEYGEN_ROUND(7, 0x40)
-        AES128_KEYGEN_ROUND(8, 0x80)
-        AES128_KEYGEN_ROUND(9, 0x1b)
-        AES128_KEYGEN_ROUND(10, 0x36)
-#undef AES128_KEYGEN_ROUND
+        //vpslldq tmp3, tmp1, 0x4
+        auto tmp3 = _mm_slli_si128(prev_key, 32);
+
+        //pxor tmp1, tmp3
+        auto tmp1 = _mm_xor_si128(prev_key, tmp3);
+
+        //vpslldq tmp3, tmp1, 0x4
+        auto tmp5 = _mm_slli_si128(tmp1, 32);
+
+        //pxor tmp1, tmp3
+        auto tmp6 = _mm_xor_si128(tmp1, tmp5);
+
+        //vpslldq tmp3, tmp1, 0x4
+        auto tmp7 = _mm_slli_si128(tmp6, 32);
+
+        //pxor tmp1, tmp3
+        auto tmp8 = _mm_xor_si128(tmp6, tmp7);
+
+        //pxor tmp1, tmp2
+        auto key = _mm_xor_si128(tmp8, tmp4);
+
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[ROUND]), key);
+        return key;
+    }
+
+public:
+    inline AES128(__uint128_t _key) :
+        key(_key)
+    {
+        auto key = _mm_load_si128(reinterpret_cast<__m128i *>(&_key));
+
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[0]), key);
+        key = AES128KeygenExpansion< 1, 0x01>(key);
+        key = AES128KeygenExpansion< 2, 0x02>(key);
+        key = AES128KeygenExpansion< 3, 0x04>(key);
+        key = AES128KeygenExpansion< 4, 0x08>(key);
+        key = AES128KeygenExpansion< 5, 0x10>(key);
+        key = AES128KeygenExpansion< 6, 0x20>(key);
+        key = AES128KeygenExpansion< 7, 0x40>(key);
+        key = AES128KeygenExpansion< 8, 0x80>(key);
+        key = AES128KeygenExpansion< 9, 0x1b>(key);
+        key = AES128KeygenExpansion<10, 0x36>(key);
     }
 
     template<bool ENCRYPT, ssize_t CRC32_LOCATION=-1>
@@ -221,15 +226,14 @@ public:
         {\
             auto key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[round]));\
             switch (nrBlocks) {\
-            case 8:\
-            case 7: cypher7 = instruction(cypher7, key);\
-            case 6: cypher6 = instruction(cypher6, key);\
-            case 5: cypher5 = instruction(cypher5, key);\
-            case 4: cypher4 = instruction(cypher4, key);\
-            case 3: cypher3 = instruction(cypher3, key);\
-            case 2: cypher2 = instruction(cypher2, key);\
-            case 1: cypher1 = instruction(cypher1, key);\
-            case 0: cypher0 = instruction(cypher0, key);\
+            case 8: cypher7 = instruction(cypher7, key);\
+            case 7: cypher6 = instruction(cypher6, key);\
+            case 6: cypher5 = instruction(cypher5, key);\
+            case 5: cypher4 = instruction(cypher4, key);\
+            case 4: cypher3 = instruction(cypher3, key);\
+            case 3: cypher2 = instruction(cypher2, key);\
+            case 2: cypher1 = instruction(cypher1, key);\
+            case 1: cypher0 = instruction(cypher0, key);\
             }\
         }
 
@@ -265,7 +269,7 @@ public:
      * @return CRC-32C value of the src buffer.
      */
     template<bool ENCRYPT, ssize_t CRC32_LOCATION=-1>
-    inline uint32_t CTRProcess(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t size)
+    uint32_t CTRProcess(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t size)
     {
         uint32_t CRC = 0xffffffff;
         auto counter = _mm_load_si128(reinterpret_cast<__m128i *>(&_counter));
@@ -316,7 +320,7 @@ public:
             CRC = AES128CTRProcessPartialBlock<ENCRYPT>(CRC, counter, &dst[doneBlocks], &src[doneBlocks], todoBytes);
         }
 
-        return CRC ^ 0xfffffff;
+        return CRC ^ 0xffffffff;
     }
 
     /** Decrypt buffer.
@@ -327,25 +331,51 @@ public:
      * @param size Size of the src and dst buffers in bytes.
      * @return CRC-32C value of the dst buffer.
      */
-    template<bool CRC32_LOCATION=-1>
-    uint32_t CTRDecrypt(__uint128_t counter, void *dst, const void *src, size_t size)
+    template<bool ENCRYPT, ssize_t CRC32_LOCATION=-1>
+    uint32_t CTRProcess(__uint128_t counter, void *dst, const void *src, size_t size)
     {
-        // XXX assert dst and src are aligned to 128 bits.
+        const __uint128_t *src128;
+        __uint128_t *dst128;
 
-        auto *dst128 = reinterpret_cast<__uint128_t *>(dst);
-        auto *src128 = reinterpret_cast<const __uint128_t *>(src);
+        if (isAligned<__uint128_t>(src)) {
+            src128 = reinterpret_cast<const __uint128_t *>(src);
+        } else {
+            auto tmp = new __uint128_t[nrItems<__uint128_t>(size)];
+            memcpy(tmp, src, size);
+            src128 = reinterpret_cast<const __uint128_t *>(tmp);
+        }
 
-        return CTRProcess<false, CRC32_LOCATION>(counter, dst128, src128, size);
+        if (isAligned<__uint128_t>(dst)) {
+            dst128 = reinterpret_cast<__uint128_t *>(dst);
+        } else {
+            dst128 = new __uint128_t[nrItems<__uint128_t>(size)];
+        }
+
+        auto CRC = CTRProcess<ENCRYPT, CRC32_LOCATION>(counter, dst128, src128, size);
+
+        if (!isAligned<__uint128_t>(src)) {
+            delete[] src128;
+        }
+
+        if (!isAligned<__uint128_t>(dst)) {
+            memcpy(dst, dst128, size);
+            delete[] dst128;
+        }
+
+        return CRC;
     }
 
-    uint32_t CTREncrypt(__uint128_t counter, void *dst, const void *src, size_t size)
+    template<bool ENCRYPT, ssize_t CRC32_LOCATION=-1>
+    std::pair<uint32_t, std::string> CTRProcess(__uint128_t counter, const std::string &src)
     {
-        // XXX assert dst and src are aligned to 128 bits.
+        auto dst = new __uint128_t[nrItems<__uint128_t>(src.size())];
 
-        auto *dst128 = reinterpret_cast<__uint128_t *>(dst);
-        auto *src128 = reinterpret_cast<const __uint128_t *>(src);
+        uint32_t CRC = CTRProcess<ENCRYPT, CRC32_LOCATION>(counter, dst, src.data(), src.size());
 
-        return CTRProcess<true>(counter, dst128, src128, size);
+        auto dstString = std::string(reinterpret_cast<const char *>(dst), src.size());
+        delete[] dst;
+
+        return std::pair<uint32_t, std::string>(CRC, dstString);
     }
 };
 
@@ -353,7 +383,7 @@ uint32_t AES128CompilerTest(__uint128_t key, __uint128_t counter, __uint128_t *b
 {
     auto C = AES128(key);
 
-    auto CRC = C.CTRDecrypt(counter, buffer, buffer, buffer_size);
+    auto CRC = C.CTRProcess<true>(counter, buffer, buffer, buffer_size);
 
     return CRC;
 }
