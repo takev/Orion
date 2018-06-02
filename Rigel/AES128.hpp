@@ -14,62 +14,62 @@
 namespace Orion {
 namespace Rigel {
 
-template<int BLOCK_NR>
-static inline __m128i AES128Round0(__m128i &counter, __m128i key, size_t nrBlocks)
-{
-    __m128i cypher;
-
-    if (BLOCK_NR < nrBlocks) {
-        cypher = _mm_xor_si128(counter, key);
-
-        auto byte_swap_mask = _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 );
-        counter = _mm_shuffle_epi8(counter, byte_swap_mask);
-
-        // Full 128-bit increment-by-one.
-        // compare =   hi, lo     hi, ff
-        // check   =   hi, ff     hi, ff
-        // cmpeq   =   ff, 00     ff, ff
-        // one     =   00, ff     ff, ff
-        auto check = _mm_insert_epi64(counter, 0xffffffffffffffff, 0);
-        auto reverse_one = _mm_cmpeq_epi64(counter, check);
-        auto one = _mm_shuffle_epi32(reverse_one, _MM_SHUFFLE(1, 0, 3, 2));
-        counter = _mm_sub_epi64(counter, one);
-
-        counter = _mm_shuffle_epi8(counter, byte_swap_mask);
-    }
-    return cypher;
-}
-
-template<bool ENCRYPT, int BLOCK_NR>
-static inline uint32_t AES128XorFullBlock(uint32_t CRC, size_t nrBlocks, __uint128_t *dst, const __uint128_t *src, __m128i cypher)
-{
-    if (BLOCK_NR < nrBlocks) {
-        auto block = _mm_load_si128(reinterpret_cast<const __m128i *>(src));
-
-        if (ENCRYPT) {
-            auto blockLo = _mm_cvtsi128_si64(block);
-            auto blockHi = _mm_extract_epi64(block, 1);
-            CRC = _mm_crc32_u64(CRC, blockLo);
-            CRC = _mm_crc32_u64(CRC, blockHi);
-
-            block = _mm_xor_si128(block, cypher);
-        } else {
-            block = _mm_xor_si128(block, cypher);
-
-            auto blockLo = _mm_cvtsi128_si64(block);
-            auto blockHi = _mm_extract_epi64(block, 1);
-
-            CRC = _mm_crc32_u64(CRC, blockLo);
-            CRC = _mm_crc32_u64(CRC, blockHi);
-        }
-
-        _mm_store_si128(reinterpret_cast<__m128i *>(dst), block);
-    }
-    return CRC;
-}
-
 class AES128 {
     __uint128_t key;
+
+    template<int BLOCK_NR>
+    static inline __m128i Round0(__m128i &counter, __m128i key, size_t nrBlocks)
+    {
+        __m128i cypher;
+
+        if (BLOCK_NR < nrBlocks) {
+            cypher = _mm_xor_si128(counter, key);
+
+            auto byte_swap_mask = _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 );
+            counter = _mm_shuffle_epi8(counter, byte_swap_mask);
+
+            // Full 128-bit increment-by-one.
+            // compare =   hi, lo     hi, ff
+            // check   =   hi, ff     hi, ff
+            // cmpeq   =   ff, 00     ff, ff
+            // one     =   00, ff     ff, ff
+            auto check = _mm_insert_epi64(counter, 0xffffffffffffffff, 0);
+            auto reverse_one = _mm_cmpeq_epi64(counter, check);
+            auto one = _mm_shuffle_epi32(reverse_one, _MM_SHUFFLE(1, 0, 3, 2));
+            counter = _mm_sub_epi64(counter, one);
+
+            counter = _mm_shuffle_epi8(counter, byte_swap_mask);
+        }
+        return cypher;
+    }
+
+    template<bool ENCRYPT, int BLOCK_NR>
+    static inline uint32_t XorFullBlock(uint32_t CRC, size_t nrBlocks, __uint128_t *dst, const __uint128_t *src, __m128i cypher)
+    {
+        if (BLOCK_NR < nrBlocks) {
+            auto block = _mm_load_si128(reinterpret_cast<const __m128i *>(src));
+
+            if (ENCRYPT) {
+                auto blockLo = _mm_cvtsi128_si64(block);
+                auto blockHi = _mm_extract_epi64(block, 1);
+                CRC = _mm_crc32_u64(CRC, blockLo);
+                CRC = _mm_crc32_u64(CRC, blockHi);
+
+                block = _mm_xor_si128(block, cypher);
+            } else {
+                block = _mm_xor_si128(block, cypher);
+
+                auto blockLo = _mm_cvtsi128_si64(block);
+                auto blockHi = _mm_extract_epi64(block, 1);
+
+                CRC = _mm_crc32_u64(CRC, blockLo);
+                CRC = _mm_crc32_u64(CRC, blockHi);
+            }
+
+            _mm_store_si128(reinterpret_cast<__m128i *>(dst), block);
+        }
+        return CRC;
+    }
 
     template<int RCON>
     static inline __m128i KeyExpansion(__m128i prev_key)
@@ -106,7 +106,7 @@ class AES128 {
     template<bool ENCRYPT, ssize_t CRC32_LOCATION=-1>
     static inline uint32_t CTRProcessPartialBlock(uint32_t CRC, __m128i key, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t size)
     {
-        auto cypher = AES128Round0<0>(counter, key, 1);
+        auto cypher = AES128::Round0<0>(counter, key, 1);
         key = AES128::KeyExpansion<0x01>(key);
         cypher = _mm_aesenc_si128(cypher, key);
         key = AES128::KeyExpansion<0x02>(key);
@@ -179,14 +179,14 @@ class AES128 {
     template<bool ENCRYPT>
     static inline uint32_t CTRProcess8FullBlocks(uint32_t CRC, __m128i key, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t nrBlocks)
     {
-        auto cypher0 = AES128Round0<0>(counter, key, nrBlocks);
-        auto cypher1 = AES128Round0<1>(counter, key, nrBlocks);
-        auto cypher2 = AES128Round0<2>(counter, key, nrBlocks);
-        auto cypher3 = AES128Round0<3>(counter, key, nrBlocks);
-        auto cypher4 = AES128Round0<4>(counter, key, nrBlocks);
-        auto cypher5 = AES128Round0<5>(counter, key, nrBlocks);
-        auto cypher6 = AES128Round0<6>(counter, key, nrBlocks);
-        auto cypher7 = AES128Round0<7>(counter, key, nrBlocks);
+        auto cypher0 = AES128::Round0<0>(counter, key, nrBlocks);
+        auto cypher1 = AES128::Round0<1>(counter, key, nrBlocks);
+        auto cypher2 = AES128::Round0<2>(counter, key, nrBlocks);
+        auto cypher3 = AES128::Round0<3>(counter, key, nrBlocks);
+        auto cypher4 = AES128::Round0<4>(counter, key, nrBlocks);
+        auto cypher5 = AES128::Round0<5>(counter, key, nrBlocks);
+        auto cypher6 = AES128::Round0<6>(counter, key, nrBlocks);
+        auto cypher7 = AES128::Round0<7>(counter, key, nrBlocks);
 
 #define AES128_ROUND(instruction, RCON)\
         {\
@@ -215,14 +215,14 @@ class AES128 {
         AES128_ROUND(_mm_aesenclast_si128, 0x36);
 #undef AES128_ROUND
 
-        CRC = AES128XorFullBlock<ENCRYPT, 0>(CRC, nrBlocks, &dst[0], &src[0], cypher0);
-        CRC = AES128XorFullBlock<ENCRYPT, 1>(CRC, nrBlocks, &dst[1], &src[1], cypher1);
-        CRC = AES128XorFullBlock<ENCRYPT, 2>(CRC, nrBlocks, &dst[2], &src[2], cypher2);
-        CRC = AES128XorFullBlock<ENCRYPT, 3>(CRC, nrBlocks, &dst[3], &src[3], cypher3);
-        CRC = AES128XorFullBlock<ENCRYPT, 4>(CRC, nrBlocks, &dst[4], &src[4], cypher4);
-        CRC = AES128XorFullBlock<ENCRYPT, 5>(CRC, nrBlocks, &dst[5], &src[5], cypher5);
-        CRC = AES128XorFullBlock<ENCRYPT, 6>(CRC, nrBlocks, &dst[6], &src[6], cypher6);
-        CRC = AES128XorFullBlock<ENCRYPT, 7>(CRC, nrBlocks, &dst[7], &src[7], cypher7);
+        CRC = AES128::XorFullBlock<ENCRYPT, 0>(CRC, nrBlocks, &dst[0], &src[0], cypher0);
+        CRC = AES128::XorFullBlock<ENCRYPT, 1>(CRC, nrBlocks, &dst[1], &src[1], cypher1);
+        CRC = AES128::XorFullBlock<ENCRYPT, 2>(CRC, nrBlocks, &dst[2], &src[2], cypher2);
+        CRC = AES128::XorFullBlock<ENCRYPT, 3>(CRC, nrBlocks, &dst[3], &src[3], cypher3);
+        CRC = AES128::XorFullBlock<ENCRYPT, 4>(CRC, nrBlocks, &dst[4], &src[4], cypher4);
+        CRC = AES128::XorFullBlock<ENCRYPT, 5>(CRC, nrBlocks, &dst[5], &src[5], cypher5);
+        CRC = AES128::XorFullBlock<ENCRYPT, 6>(CRC, nrBlocks, &dst[6], &src[6], cypher6);
+        CRC = AES128::XorFullBlock<ENCRYPT, 7>(CRC, nrBlocks, &dst[7], &src[7], cypher7);
         return CRC;
     }
 
