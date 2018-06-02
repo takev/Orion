@@ -14,20 +14,16 @@
 namespace Orion {
 namespace Rigel {
 
-static inline __m128i AES128KeyGenPart2(__m128i tmp1, __m128i tmp2)
-{
-
-    return tmp1;
-}
-
 template<int BLOCK_NR>
-static inline __m128i AES128Round0(__m128i &counter, __m128i blockSize, __m128i key, size_t nrBlocks)
+static inline __m128i AES128Round0(__m128i &counter, __m128i key, size_t nrBlocks)
 {
     __m128i cypher;
 
     if (BLOCK_NR < nrBlocks) {
         cypher = _mm_xor_si128(counter, key);
-        counter = _mm_add_epi64(counter, blockSize);
+
+        auto one = _mm_set_epi64x(0, 1);
+        counter = _mm_add_epi64(counter, one);
     }
     return cypher;
 }
@@ -67,31 +63,32 @@ class AES128 {
     template<int ROUND, int RCON>
     inline __m128i AES128KeygenExpansion(__m128i prev_key)
     {
-        auto tmp2 = _mm_aeskeygenassist_si128(prev_key, RCON);
+        // aeskeyassist xmm2 = xmm1, RCON
+        auto tmp1 = _mm_aeskeygenassist_si128(prev_key, RCON);
 
-        //pshufd tmp2, tmp2, 0xff
-        auto tmp4 = _mm_shuffle_epi32(tmp2, 0xff);
+        // pshufd xmm2 = xmm2, 0xff
+        auto tmp2 = _mm_shuffle_epi32(tmp1, 0xff);
 
-        //vpslldq tmp3, tmp1, 0x4
-        auto tmp3 = _mm_slli_si128(prev_key, 32);
+        // vpslldq xmm3 = xmm1, 0x4
+        auto tmp3 = _mm_slli_si128(prev_key, 4);
 
-        //pxor tmp1, tmp3
-        auto tmp1 = _mm_xor_si128(prev_key, tmp3);
+        // pxor xmm1 = xmm1, xmm3
+        auto tmp4 = _mm_xor_si128(prev_key, tmp3);
 
-        //vpslldq tmp3, tmp1, 0x4
-        auto tmp5 = _mm_slli_si128(tmp1, 32);
+        // vpslldq xmm3 = xmm1, 0x4
+        auto tmp5 = _mm_slli_si128(tmp4, 4);
 
-        //pxor tmp1, tmp3
-        auto tmp6 = _mm_xor_si128(tmp1, tmp5);
+        // pxor xmm1 = xmm1, xmm3
+        auto tmp6 = _mm_xor_si128(tmp4, tmp5);
 
-        //vpslldq tmp3, tmp1, 0x4
-        auto tmp7 = _mm_slli_si128(tmp6, 32);
+        // vpslldq xmm3 = xmm1, 0x4
+        auto tmp7 = _mm_slli_si128(tmp6, 4);
 
-        //pxor tmp1, tmp3
+        // pxor xmm1 = xmm1, xmm3
         auto tmp8 = _mm_xor_si128(tmp6, tmp7);
 
-        //pxor tmp1, tmp2
-        auto key = _mm_xor_si128(tmp8, tmp4);
+        // pxor xmm1 = xmm1, xmm2 
+        auto key = _mm_xor_si128(tmp8, tmp2);
 
         _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[ROUND]), key);
         return key;
@@ -122,11 +119,7 @@ public:
         __m128i cypher;
 
         auto key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[0]));
-        auto blockSize = _mm_set_epi64x(0, size);
-
-        cypher = _mm_xor_si128(counter, key);
-        counter = _mm_add_epi64(counter, blockSize);
-
+        cypher = AES128Round0<0>(counter, key, 1);
         key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[1]));
         cypher = _mm_aesenc_si128(cypher, key);
         key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[2]));
@@ -210,16 +203,15 @@ public:
 
         {
             auto key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[0]));
-            auto blockSize = _mm_set_epi64x(0, sizeof(__uint128_t));
 
-            cypher0 = AES128Round0<0>(counter, blockSize, key, nrBlocks);
-            cypher1 = AES128Round0<1>(counter, blockSize, key, nrBlocks);
-            cypher2 = AES128Round0<2>(counter, blockSize, key, nrBlocks);
-            cypher3 = AES128Round0<3>(counter, blockSize, key, nrBlocks);
-            cypher4 = AES128Round0<4>(counter, blockSize, key, nrBlocks);
-            cypher5 = AES128Round0<5>(counter, blockSize, key, nrBlocks);
-            cypher6 = AES128Round0<6>(counter, blockSize, key, nrBlocks);
-            cypher7 = AES128Round0<7>(counter, blockSize, key, nrBlocks);
+            cypher0 = AES128Round0<0>(counter, key, nrBlocks);
+            cypher1 = AES128Round0<1>(counter, key, nrBlocks);
+            cypher2 = AES128Round0<2>(counter, key, nrBlocks);
+            cypher3 = AES128Round0<3>(counter, key, nrBlocks);
+            cypher4 = AES128Round0<4>(counter, key, nrBlocks);
+            cypher5 = AES128Round0<5>(counter, key, nrBlocks);
+            cypher6 = AES128Round0<6>(counter, key, nrBlocks);
+            cypher7 = AES128Round0<7>(counter, key, nrBlocks);
         }
 
 #define AES128_ROUND(instruction, round)\
