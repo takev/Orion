@@ -9,84 +9,109 @@ Features:
  * UDP or TCP carrier.
 
 ## Packet format
+The complete packet including the header is encryped using AES128-CTR.
+
+Exceptions to encryption:
+
+ * First 8 bits (sequenceNr and type) of the packet is XOR-ed
+   with second 8 bit of the encrypted-packet. This scrambling is used
+   to frustrate middle-boxes with reading the sequence number and type.
+ * The extraHeader is neither encrypted nor scrambled.
 
 ```
 struct Header[16] {
-    bool                open;
-    bool                close;
-    uint6_t             sequenceNr;
-    uint56_t            reliabilityMask;
-    bool                error;
+    uint2_t             type;           // Scrambled
+    uint6_t             sequenceNr;     // Scrambled
     bool                fragment;
+    bool                message;
     uint6_t             acknowledgeNr;
-    uint56_t            acknowledgeMask;
+    uint16_t            length;
+    uint32_t            reliabilityMask;
+    uint32_t            acknowledgeMask;
+    uint32_t            crc32c;
 };
 
-struct KeyExchangeHeader {
-    uint128_t           nonce;
-    uint8_t             publicKey[];
-};
-
-struct EncryptedData {
-    uint32_t            checksum;
+struct OpenPDU {
+    uint8_t             publicKey[];    // Plain-text
     uint8_t             data[];
 };
 
-struct ClientKeyExchangePacket {
-    Header              header;
-    KeyExchangeHeader   keyExchangeHeader;
-    EncryptedData       encryptedData;
+struct ClosePDU {
+    uint8_t             data[];
 };
 
-struct DataPacket {
-    Header              header;
-    EncryptedData       encryptedData;
+struct DataPDU {
+    uint8_t             data[];
 };
 
-struct ErrorPacket {
+struct ErrorPDU {
+    uint32_t            errorCode;      // Plain-text
+    uint8_t             errorMessage[]; // Plain-text
+};
+
+struct Packet[header.length] {
     Header              header;
-    uint32_t            errorCode;
+
+    switch (header.type) {
+    case 0: OpenPDU     pdu;
+    case 1: DataPDU     pdu;
+    case 2: ClosePDU    pdu;
+    case 3: ErrorPDU    pdu;
+    }
 };
 
 ```
-### Header
-To frustrate deep packet inspection of the non-encrypted header; the first 16 bytes of
-the packet (the header) is XOR-ed with the second 16 bytes of the packet (encryptedData
-or keyExchangeHeader).
 
-### OPEN
+### Type
+
+ * 0 - Open connecion
+ * 1 - Established connection
+ * 2 - Close connection
+ * 3 - Error
+
+#### Open connection
 This flag marks the first packet send by the client to the server. In this
 case the we use the ClientKeyExchangePacket format; otherwise use the DataPacket format.
 
-During the Open the client will send its Diffie-Hellman public key, its AES-Nonce value,
+During the Open the client will send its Diffie-Hellman public key,
 the encrypted-checksum and optionally encrypted-data. This requires the client to already
 know the Diffie-Hellman public key of the server, which it has received out-of-band.
 
-### CLOSE
+#### Established connection
+
+#### Close connection
 This flag marks the half-close packet from either the client or server. The close from
 either side must be acknowledged. The Close flag may be set during Open. Data may be
 send on the Close.
 
-### ERROR
-When this flag is set the packet is in the ErrorPacket format. It send when after receiving
+#### Error
+When this flag is set the packet is in the ErrorPacket format. It is send after receiving
 a bad packet, or when the protocol is in a incorrect state.
 
-The Close flag may be send on Error.
+None of the packet is encrypted on error, since error could be cuased by having no or 
+incorrect encryption keys.
 
-### DATA (virtual)
-This flag is set when the length of the data is larger than zero.
+### MESSAGE
+This flag is send when a message needs to be delivered to the application. It is
+possible for the message to be zero bytes in length.
 
 ### FRAGMENT
 When this bit is set the data in this packet should be concatenated with the data
 in the next packet. The application should only see a single large message.
 
-### Sequence Number
-The least significant 6 bits of the virtual 64 bit sequence number.
-Sequence number zero represents the sequence number before opening the connection
-and is used to acknowledge an OPEN packet without responding with data.
+The maximum data size of fragmented message is 65536 bytes.
 
-The sequence number is incremented before the sender sends a packet with  one or more
-of the following flags: OPEN, CLOSE, DATA.
+### Length
+This is the length of the packet including the header. This is needed when encapsulating
+RITP inside a streaming protocol such as TCP.
+
+### Sequence Number
+The least significant 8 bits of the virtual 64 bit sequence number.
+Sequence number zero represents the sequence number before opening the connection
+and is used when acknowledging an OPEN packet without responding with data.
+
+The sequence number is incremented before the sender sends a OPEN- or CLOSE-packet, or
+when the MESSAGE flag is set.
 
 ### Reliability Mask
 This bit-mask references previously send packets, up to and including the current
@@ -100,8 +125,8 @@ Messages are always passed to the application in the correct order. But unreliab
 messages may never arrive.
 
 ### Acknowledge Number
-The sequence number of the last packet received. As long as references
-to all the unreceived reliable-packets fit in the acknowledge-mask.
+The least significant 8 bits of the sequence number of the last packet received.
+As long as references to all the unreceived reliable-packets fit in the acknowledge-mask.
 
 At the start this mask is zero, as if all messages before the OPEN where send unreliably.
 
@@ -120,30 +145,24 @@ because all messages are strictly ordered.
 At the start this mask is zero, as if all messages before the OPEN have not been received.
 
 ### Public Key
-The Diffie-Hellman public key. A random number of the same size as the MODP group size
-of the server. Must be a multiple of 128-bits in size for proper alignment of the 
-encrypted data.
+The Diffie-Hellman public key in little endian format. A random number of the same size
+as the MODP group size of the server.
 
 To protect against man-in-the-midde attack; the Diffie-Hellman server-public-key MUST
 be distributed out-of-band and is not transmitted in-band. This also saves in data to
 be transmitted during the handshake.
 
-### Nonce
-A 128-bit random number used as part of the AES-CTR counter.
+The result of the key-exchange is stored in little-endian and hashed using SHA-512. The
+top 128-bits of the hash is used as the AES-key, and the next 128-bits of the hash are
+used as the initial-counter-value (ICV).
 
-### Encrypted Data
-The data on the connection is encrypted using AES in CTR-mode. The start of the
-data is aligned to 128-bit so that we can use x86 SSE/AES/CRC instructions
-directly on a receive/send buffer. The AES-Key is negotiated using Diffie-Hellman during OPEN.
-The AES-Counter is build up as follows:
+The initial-counter-value is split in two 64 bit values: ICV-msb and ICV-lsb.
 
-```
-counter <= nonce XOR (serverSide << 127 | sequenceNr << 32 | blockNr);
-```
+counter <= ICV-msb << 64 | (IVC-lsb + (sequenceNr << 16 | blockNr << 4)) & 0xffffffff;
 
 ### Checksum
-A CRC-32C checksum of the complete non-encrypted packet including the header and optional
-KeyExchangeHeader. This encrypted checksum will count as proof that the correct AES key was used
+A CRC-32C checksum of the complete non-encrypted packet including the header.
+This encrypted checksum will count as proof that the correct AES key was used
 and that the header was not modified by a middle box.
 
 ### Data
