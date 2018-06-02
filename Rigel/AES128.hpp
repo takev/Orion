@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <string>
 
+#include <string.h>
 #include <smmintrin.h>
 #include <wmmintrin.h>
 #include <nmmintrin.h>
@@ -16,6 +17,7 @@ namespace Rigel {
 
 class AES128 {
     __uint128_t key;
+    __uint128_t keyRounds[11];
 
     template<int BLOCK_NR>
     static inline __m128i Round0(__m128i &counter, __m128i key, size_t nrBlocks)
@@ -104,29 +106,30 @@ class AES128 {
     }
 
     template<bool ENCRYPT, ssize_t CRC32_LOCATION=-1>
-    static inline uint32_t CTRProcessPartialBlock(uint32_t CRC, __m128i key, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t size)
+    inline uint32_t CTRProcessPartialBlock(uint32_t CRC, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t size)
     {
-        auto cypher = AES128::Round0<0>(counter, key, 1);
-        key = AES128::KeyExpansion<0x01>(key);
-        cypher = _mm_aesenc_si128(cypher, key);
-        key = AES128::KeyExpansion<0x02>(key);
-        cypher = _mm_aesenc_si128(cypher, key);
-        key = AES128::KeyExpansion<0x04>(key);
-        cypher = _mm_aesenc_si128(cypher, key);
-        key = AES128::KeyExpansion<0x08>(key);
-        cypher = _mm_aesenc_si128(cypher, key);
-        key = AES128::KeyExpansion<0x10>(key);
-        cypher = _mm_aesenc_si128(cypher, key);
-        key = AES128::KeyExpansion<0x20>(key);
-        cypher = _mm_aesenc_si128(cypher, key);
-        key = AES128::KeyExpansion<0x40>(key);
-        cypher = _mm_aesenc_si128(cypher, key);
-        key = AES128::KeyExpansion<0x80>(key);
-        cypher = _mm_aesenc_si128(cypher, key);
-        key = AES128::KeyExpansion<0x1b>(key);
-        cypher = _mm_aesenc_si128(cypher, key);
-        key = AES128::KeyExpansion<0x36>(key);
-        cypher = _mm_aesenclast_si128(cypher, key);
+        auto mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[0]));
+        auto cypher = AES128::Round0<0>(counter, mm_key, 1);
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[1]));
+        cypher = _mm_aesenc_si128(cypher, mm_key);
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[2]));
+        cypher = _mm_aesenc_si128(cypher, mm_key);
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[3]));
+        cypher = _mm_aesenc_si128(cypher, mm_key);
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[4]));
+        cypher = _mm_aesenc_si128(cypher, mm_key);
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[5]));
+        cypher = _mm_aesenc_si128(cypher, mm_key);
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[6]));
+        cypher = _mm_aesenc_si128(cypher, mm_key);
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[7]));
+        cypher = _mm_aesenc_si128(cypher, mm_key);
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[8]));
+        cypher = _mm_aesenc_si128(cypher, mm_key);
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[9]));
+        cypher = _mm_aesenc_si128(cypher, mm_key);
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[10]));
+        cypher = _mm_aesenclast_si128(cypher, mm_key);
 
         __uint128_t cypher128;
         auto cypher8 = reinterpret_cast<const uint8_t *>(&cypher128);
@@ -177,42 +180,41 @@ class AES128 {
      * @return CRC-32C Result of the plain-text data.
      */
     template<bool ENCRYPT>
-    static inline uint32_t CTRProcess8FullBlocks(uint32_t CRC, __m128i key, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t nrBlocks)
+    inline uint32_t CTRProcess8FullBlocks(uint32_t CRC, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t nrBlocks)
     {
-        auto cypher0 = AES128::Round0<0>(counter, key, nrBlocks);
-        auto cypher1 = AES128::Round0<1>(counter, key, nrBlocks);
-        auto cypher2 = AES128::Round0<2>(counter, key, nrBlocks);
-        auto cypher3 = AES128::Round0<3>(counter, key, nrBlocks);
-        auto cypher4 = AES128::Round0<4>(counter, key, nrBlocks);
-        auto cypher5 = AES128::Round0<5>(counter, key, nrBlocks);
-        auto cypher6 = AES128::Round0<6>(counter, key, nrBlocks);
-        auto cypher7 = AES128::Round0<7>(counter, key, nrBlocks);
+        auto mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[0]));\
+        auto cypher0 = AES128::Round0<0>(counter, mm_key, nrBlocks);
+        auto cypher1 = AES128::Round0<1>(counter, mm_key, nrBlocks);
+        auto cypher2 = AES128::Round0<2>(counter, mm_key, nrBlocks);
+        auto cypher3 = AES128::Round0<3>(counter, mm_key, nrBlocks);
+        auto cypher4 = AES128::Round0<4>(counter, mm_key, nrBlocks);
+        auto cypher5 = AES128::Round0<5>(counter, mm_key, nrBlocks);
+        auto cypher6 = AES128::Round0<6>(counter, mm_key, nrBlocks);
+        auto cypher7 = AES128::Round0<7>(counter, mm_key, nrBlocks);
 
-#define AES128_ROUND(instruction, RCON)\
-        {\
-            key = AES128::KeyExpansion<RCON>(key);\
-            switch (nrBlocks) {\
-            case 8: cypher7 = instruction(cypher7, key);\
-            case 7: cypher6 = instruction(cypher6, key);\
-            case 6: cypher5 = instruction(cypher5, key);\
-            case 5: cypher4 = instruction(cypher4, key);\
-            case 4: cypher3 = instruction(cypher3, key);\
-            case 3: cypher2 = instruction(cypher2, key);\
-            case 2: cypher1 = instruction(cypher1, key);\
-            case 1: cypher0 = instruction(cypher0, key);\
-            }\
+#define AES128_ROUND(instruction, ROUND)\
+        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[ROUND]));\
+        switch (nrBlocks) {\
+        case 8: cypher7 = instruction(cypher7, mm_key);\
+        case 7: cypher6 = instruction(cypher6, mm_key);\
+        case 6: cypher5 = instruction(cypher5, mm_key);\
+        case 5: cypher4 = instruction(cypher4, mm_key);\
+        case 4: cypher3 = instruction(cypher3, mm_key);\
+        case 3: cypher2 = instruction(cypher2, mm_key);\
+        case 2: cypher1 = instruction(cypher1, mm_key);\
+        case 1: cypher0 = instruction(cypher0, mm_key);\
         }
 
-        AES128_ROUND(_mm_aesenc_si128,     0x01);
-        AES128_ROUND(_mm_aesenc_si128,     0x02);
-        AES128_ROUND(_mm_aesenc_si128,     0x04);
-        AES128_ROUND(_mm_aesenc_si128,     0x08);
-        AES128_ROUND(_mm_aesenc_si128,     0x10);
-        AES128_ROUND(_mm_aesenc_si128,     0x20);
-        AES128_ROUND(_mm_aesenc_si128,     0x40);
-        AES128_ROUND(_mm_aesenc_si128,     0x80);
-        AES128_ROUND(_mm_aesenc_si128,     0x1b);
-        AES128_ROUND(_mm_aesenclast_si128, 0x36);
+        AES128_ROUND(_mm_aesenc_si128,     1);
+        AES128_ROUND(_mm_aesenc_si128,     2);
+        AES128_ROUND(_mm_aesenc_si128,     3);
+        AES128_ROUND(_mm_aesenc_si128,     4);
+        AES128_ROUND(_mm_aesenc_si128,     5);
+        AES128_ROUND(_mm_aesenc_si128,     6);
+        AES128_ROUND(_mm_aesenc_si128,     7);
+        AES128_ROUND(_mm_aesenc_si128,     8);
+        AES128_ROUND(_mm_aesenc_si128,     9);
+        AES128_ROUND(_mm_aesenclast_si128, 10);
 #undef AES128_ROUND
 
         CRC = AES128::XorFullBlock<ENCRYPT, 0>(CRC, nrBlocks, &dst[0], &src[0], cypher0);
@@ -227,7 +229,31 @@ class AES128 {
     }
 
 public:
-    inline AES128(__uint128_t key) : key(key) {}
+    inline AES128(__uint128_t key) : key(key) {
+        auto mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&key));
+
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[0]), mm_key);
+        mm_key = AES128::KeyExpansion<0x01>(mm_key);
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[1]), mm_key);
+        mm_key = AES128::KeyExpansion<0x02>(mm_key);
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[2]), mm_key);
+        mm_key = AES128::KeyExpansion<0x04>(mm_key);
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[3]), mm_key);
+        mm_key = AES128::KeyExpansion<0x08>(mm_key);
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[4]), mm_key);
+        mm_key = AES128::KeyExpansion<0x10>(mm_key);
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[5]), mm_key);
+        mm_key = AES128::KeyExpansion<0x20>(mm_key);
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[6]), mm_key);
+        mm_key = AES128::KeyExpansion<0x40>(mm_key);
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[7]), mm_key);
+        mm_key = AES128::KeyExpansion<0x80>(mm_key);
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[8]), mm_key);
+        mm_key = AES128::KeyExpansion<0x1b>(mm_key);
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[9]), mm_key);
+        mm_key = AES128::KeyExpansion<0x36>(mm_key);
+        _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[10]), mm_key);
+    }
 
     /** Process (encrypt/decrypt) buffer.
      *
@@ -241,7 +267,6 @@ public:
     uint32_t CTRProcess(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t size)
     {
         uint32_t CRC = 0xffffffff;
-        auto key = _mm_load_si128(reinterpret_cast<__m128i *>(&this->key));
         auto counter = _mm_load_si128(reinterpret_cast<__m128i *>(&_counter));
 
         size_t todoBytes = size;
@@ -256,7 +281,7 @@ public:
             while (doneBlocks < CRC32_BLOCK_LOCATION) {
                 auto nrBlocks = std::min(todoBlocks, static_cast<size_t>(8));
 
-                CRC = AES128::CTRProcess8FullBlocks<ENCRYPT>(CRC, key, counter, &dst[doneBlocks], &src[doneBlocks], nrBlocks);
+                CRC = CTRProcess8FullBlocks<ENCRYPT>(CRC, counter, &dst[doneBlocks], &src[doneBlocks], nrBlocks);
 
                 todoBytes -= nrBlocks * sizeof (__uint128_t);
                 todoBlocks -= nrBlocks;
@@ -266,7 +291,7 @@ public:
             // The CRC is located inside this block. Most often this is a full block, but we use this function
             // to mask the CRC during decryption.
             auto nrBytes = std::min(todoBytes, sizeof (__uint128_t));
-            CRC = AES128::CTRProcessPartialBlock<ENCRYPT,CRC32_LOCATION % sizeof (__uint128_t)>(CRC, key, counter, &dst[doneBlocks], &src[doneBlocks], nrBytes);
+            CRC = CTRProcessPartialBlock<ENCRYPT,CRC32_LOCATION % sizeof (__uint128_t)>(CRC, counter, &dst[doneBlocks], &src[doneBlocks], nrBytes);
 
             todoBytes -= nrBytes;
             if (nrBytes == sizeof (__uint128_t)) {
@@ -278,7 +303,7 @@ public:
         while (todoBlocks > 0) {
 			auto nrBlocks = std::min(todoBlocks, static_cast<size_t>(8));
 
-            CRC = AES128::CTRProcess8FullBlocks<ENCRYPT>(CRC, key, counter, &dst[doneBlocks], &src[doneBlocks], nrBlocks);
+            CRC = CTRProcess8FullBlocks<ENCRYPT>(CRC, counter, &dst[doneBlocks], &src[doneBlocks], nrBlocks);
 
             todoBytes -= nrBlocks * sizeof (__uint128_t);
             todoBlocks -= nrBlocks;
@@ -287,7 +312,7 @@ public:
 
         // Process the last few bytes in the last block.
         if (todoBytes) {
-            CRC = AES128::CTRProcessPartialBlock<ENCRYPT>(CRC, key, counter, &dst[doneBlocks], &src[doneBlocks], todoBytes);
+            CRC = AES128::CTRProcessPartialBlock<ENCRYPT>(CRC, counter, &dst[doneBlocks], &src[doneBlocks], todoBytes);
         }
 
         return CRC ^ 0xffffffff;
@@ -357,7 +382,5 @@ uint32_t AES128CompilerTest(__uint128_t key, __uint128_t counter, __uint128_t *b
 
     return CRC;
 }
-
-
 
 };};
