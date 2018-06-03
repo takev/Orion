@@ -27,9 +27,6 @@ class AES128 {
         if (BLOCK_NR < nrBlocks) {
             cypher = _mm_xor_si128(counter, key);
 
-            auto byte_swap_mask = _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 );
-            counter = _mm_shuffle_epi8(counter, byte_swap_mask);
-
             // Full 128-bit increment-by-one.
             // compare =   hi, lo     hi, ff
             // check   =   hi, ff     hi, ff
@@ -39,8 +36,6 @@ class AES128 {
             auto reverse_one = _mm_cmpeq_epi64(counter, check);
             auto one = _mm_shuffle_epi32(reverse_one, _MM_SHUFFLE(1, 0, 3, 2));
             counter = _mm_sub_epi64(counter, one);
-
-            counter = _mm_shuffle_epi8(counter, byte_swap_mask);
         }
         return cypher;
     }

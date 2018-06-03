@@ -70,19 +70,22 @@ struct Packet[header.length] {
  * 3 - Error
 
 #### Open connection
-This flag marks the first packet send by the client to the server. In this
-case the we use the ClientKeyExchangePacket format; otherwise use the DataPacket format.
+This is the first packet send by the client to the server.
 
-During the Open the client will send its Diffie-Hellman public key,
-the encrypted-checksum and optionally encrypted-data. This requires the client to already
-know the Diffie-Hellman public key of the server, which it has received out-of-band.
+During the Open the client will send its Diffie-Hellman public key.
+This requires the client to already know the Diffie-Hellman public key of the server,
+which it has received out-of-band.
 
-#### Established connection
+Data may be send on the Open. The encrypted CRC-32C in the value in the header will
+prove that the client has completed the cryptographic hand-shake.
 
 #### Close connection
-This flag marks the half-close packet from either the client or server. The close from
-either side must be acknowledged. The Close flag may be set during Open. Data may be
-send on the Close.
+This type half-closes the connection, meaning that the sender will not send any more
+date . The close from either side must be acknowledged.
+
+Data may be send on the Close.
+
+#### Established connection
 
 #### Error
 When this flag is set the packet is in the ErrorPacket format. It is send after receiving
@@ -152,21 +155,32 @@ To protect against man-in-the-midde attack; the Diffie-Hellman server-public-key
 be distributed out-of-band and is not transmitted in-band. This also saves in data to
 be transmitted during the handshake.
 
-The result of the key-exchange is stored in little-endian and hashed using SHA-512. The
-top 128-bits of the hash is used as the AES-key, and the next 128-bits of the hash are
-used as the initial-counter-value (ICV).
+The result of the key-exchange is stored in little-endian and hashed using SHA-512.
+From the lsb to msb, the 512-bit value divided into four 128-bit values:
 
-The initial-counter-value is split in two 64 bit values: ICV-msb and ICV-lsb.
+ * client-side-AES-key
+ * server-side-AES-key
+ * client-side-IV
+ * server-side-IV
 
-counter <= ICV-msb << 64 | (IVC-lsb + (sequenceNr << 16 | blockNr << 4)) & 0xffffffff;
+The whole packet (except for the first byte of a packet and the public key) will be
+encypted using AES in CTR mode. The counter is a 128-bit little-endian integer which
+begins at the initial-value (IV) adding the blockNr and sequenceNr to it:
+
+```
+counter <= IV + (sequenceNr << 64 | blockNr);
+```
 
 ### Checksum
 A CRC-32C checksum of the complete non-encrypted packet including the header.
 This encrypted checksum will count as proof that the correct AES key was used
 and that the header was not modified by a middle box.
 
+The CRC-32C is part of the header, during calculation of the CRC-32C the value in
+the header should be set to zero.
+
 ### Data
-Encrypted application data. If data is zero length, then no message is send to the application.
+The data that will be send to the application.
 
 ### Error Code
 
@@ -178,6 +192,9 @@ Encrypted application data. If data is zero length, then no message is send to t
  *       -   255 Reserved by RITP
  *   256 - 65535 Reserced by RITP Services
  * 65556 -       Application errors
+
+### Error Message
+Error message in english to be presented to a user.
 
 ## Dynamics
 In the example we only show masks with 8 bits.

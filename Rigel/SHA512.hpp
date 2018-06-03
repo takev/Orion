@@ -17,13 +17,23 @@ public:
     char overflowBuffer[127];
 
     /** Constructor
-     *
-     * @param salt The salt to be used with the data.
      */
     SHA512(void);
 
+    /** Constructor
+     * This version allows data to be added directly.
+     *
+     * @param buffer The bytes to hash.
+     * @param bufferSize The amount of bytes to hash.
+     */
     SHA512(const char *buffer, size_t bufferSize);
 
+    /** Constructor
+     * This version allows data to be added directly.
+     *
+     * @param buffer The bytes to hash.
+     * @param bufferSize The amount of bytes to hash.
+     */
     SHA512(const std::string &data);
 
     /** Add some data.
@@ -33,12 +43,17 @@ public:
      */
     void add(const char *buffer, size_t bufferSize);
 
+    /** Add some data.
+     *
+     * @param buffer The bytes to hash.
+     * @param bufferSize The amount of bytes to hash.
+     */
     void add(const std::string &data);
 
     /** Finish.
      * Hash the last bit of data and add padding.
      *
-     * @return The 256 bits hash value.
+     * @return The 512 bits hash value.
      */
     BigInt<512> finish(void);
 };

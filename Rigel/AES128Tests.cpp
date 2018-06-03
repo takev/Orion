@@ -213,25 +213,6 @@ BOOST_AUTO_TEST_CASE(TestEncrypt)
 
         BOOST_CHECK_EQUAL(cypherText, expectedText);
     }
-
-    // Double FullBlock test.
-    {
-        __uint128_t counter;
-        __uint128_t key;
-
-        memcpy(&counter,                "\x00\x6C\xB6\xDB\xC0\x54\x3B\x59\xDA\x48\xD9\x0B\x00\x00\x00\x01", sizeof (counter));
-        memcpy(&key,                    "\x7E\x24\x06\x78\x17\xFA\xE0\xD7\x43\xD6\xCE\x1F\x32\x53\x91\x63", sizeof (key));
-
-        auto plainText    = std::string("\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F", 32);
-        auto expectedText = std::string("\x51\x04\xA1\x06\x16\x8A\x72\xD9\x79\x0D\x41\xEE\x8E\xDA\xD3\x88\xEB\x2E\x1E\xFC\x46\xDA\x57\xC8\xFC\xE6\x30\xDF\x91\x41\xBE\x28", 32);
-
-        auto C = AES128(key);
-        auto CRC_CypherText = C.CTRProcess<true>(counter, plainText);
-        auto cypherText = CRC_CypherText.second;
-
-        BOOST_CHECK_EQUAL(cypherText, expectedText);
-    }
-
 }
 
 
