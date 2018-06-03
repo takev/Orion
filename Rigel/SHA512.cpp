@@ -31,11 +31,6 @@ const uint64_t SHA512_k[80] = {
     0x431d67c49c100d4c, 0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817
 };
 
-static inline uint64_t rotr(uint64_t x, int shift)
-{
-    return (x >> shift) | (x << (64 - shift));
-}
-
 static inline void SHA512CreateMessageSchedule(uint64_t *w, const uint64_t *chunk)
 {
     for (int i = 0; i < 16; i++) {
@@ -111,11 +106,6 @@ SHA512::SHA512(const std::string &str) :
     add(str);
 }
 
-/** Add some data.
- *
- * @param buffer The bytes to hash.
- * @param bufferSize The amount of bytes to hash.
-*/
 void SHA512::add(const char *buffer, size_t bufferSize)
 {
     dataSize += bufferSize;
@@ -177,11 +167,6 @@ void SHA512::add(const std::string &str)
     add(str.data(), str.size());
 }
 
-/** Finish.
- * Hash the last bit of data and add padding.
- *
- * @return The 256 bits hash value.
- */
 BigInt<512> SHA512::finish(void)
 {
     uint64_t chunk64[16];

@@ -1,41 +1,41 @@
 #pragma once
 
-#include <cstdint>
-#include <algorithm>
-#include <string>
+#include "int_utils.hpp"
 
+#include <cstdint>
+#include <utility>
+#include <string>
+#include <algorithm>
+#include <boost/exception/all.hpp>
 #include <string.h>
+#include <emmintrin.h>
+#include <nmmintrin.h>
 #include <smmintrin.h>
 #include <wmmintrin.h>
-#include <nmmintrin.h>
-#include <emmintrin.h>
-
-#include "int_utils.hpp"
+#include <xmmintrin.h>
 
 namespace Orion {
 namespace Rigel {
 
+struct aes128_crc_location_error: virtual boost::exception, virtual std::exception {};
+
+/** Implementation of the CTR-mode of the AES-128 encryption algorithm.
+ * This implemenation is designed to run on Intel Broadwell or later CPUs.
+ *
+ * It will run 8 blocks of 128-bits in parallel, to fill the CPU pipeline.
+ */
 class AES128 {
     __uint128_t key;
     __uint128_t keyRounds[11];
 
     template<int BLOCK_NR>
-    static inline __m128i Round0(__m128i &counter, __m128i key, size_t nrBlocks)
+    static __m128i Round0(__m128i &counter, __m128i key, size_t nrBlocks)
     {
         __m128i cypher;
 
         if (BLOCK_NR < nrBlocks) {
             cypher = _mm_xor_si128(counter, key);
-
-            // Full 128-bit increment-by-one.
-            // compare =   hi, lo     hi, ff
-            // check   =   hi, ff     hi, ff
-            // cmpeq   =   ff, 00     ff, ff
-            // one     =   00, ff     ff, ff
-            auto check = _mm_insert_epi64(counter, 0xffffffffffffffff, 0);
-            auto reverse_one = _mm_cmpeq_epi64(counter, check);
-            auto one = _mm_shuffle_epi32(reverse_one, _MM_SHUFFLE(1, 0, 3, 2));
-            counter = _mm_sub_epi64(counter, one);
+            counter = mm_inc_si128(counter);
         }
         return cypher;
     }
@@ -100,30 +100,45 @@ class AES128 {
         return key;
     }
 
+    /** Process a buffer of up to a full block.
+     * This function executed XOR and CRC calculation byte-by-byte.
+     * Therefor it can ignore the CRC in the encrypted data, or end
+     * early without readingt src or modifying dst beyond their size.
+     *
+     * @param ENCRYPT true to encrypt, false to decrypt.
+     * @param CRC32_LOCATION location of the CRC-32C to ignore during decrypting.
+     * @param CRC The CRC calculated from a previous call.
+     * @param counter Counter value incremented by 1.
+     * @param dst Destination buffer. dst and src may alias.
+     * @param src Source buffer. dst and src may alias.
+     * @param size Number of bytes to process. size must be between 1 and 16 (inclusive).
+     * @return CRC-32C Result of the plain-text data.
+     */
     template<bool ENCRYPT, ssize_t CRC32_LOCATION=-1>
-    inline uint32_t CTRProcessPartialBlock(uint32_t CRC, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t size)
+    uint32_t CTRProcessPartialBlock(uint32_t CRC, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t size) const
     {
-        auto mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[0]));
+        auto mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[0]));
         auto cypher = AES128::Round0<0>(counter, mm_key, 1);
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[1]));
+
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[1]));
         cypher = _mm_aesenc_si128(cypher, mm_key);
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[2]));
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[2]));
         cypher = _mm_aesenc_si128(cypher, mm_key);
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[3]));
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[3]));
         cypher = _mm_aesenc_si128(cypher, mm_key);
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[4]));
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[4]));
         cypher = _mm_aesenc_si128(cypher, mm_key);
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[5]));
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[5]));
         cypher = _mm_aesenc_si128(cypher, mm_key);
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[6]));
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[6]));
         cypher = _mm_aesenc_si128(cypher, mm_key);
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[7]));
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[7]));
         cypher = _mm_aesenc_si128(cypher, mm_key);
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[8]));
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[8]));
         cypher = _mm_aesenc_si128(cypher, mm_key);
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[9]));
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[9]));
         cypher = _mm_aesenc_si128(cypher, mm_key);
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[10]));
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[10]));
         cypher = _mm_aesenclast_si128(cypher, mm_key);
 
         __uint128_t cypher128;
@@ -159,7 +174,6 @@ class AES128 {
         return CRC;
     }
 
-
     /** Process a buffer of up to 8 128-bit blocks in parralel.
      *
      * @param ENCRYPT true if encrypting, false if decrypting.
@@ -167,17 +181,16 @@ class AES128 {
      *        when calculating the CRC. The CRC in the encrypted message is located
      *        in the last 32-bit word of the first 128-bit block.
      * @param CRC The CRC calculated from a previous call.
-     * @param counter MMX Register containing a 64-bit counter (lsb), and 64 bit nonce (msb). Counter is incremented
-     *        by 64 (4 blocks of 16 bytes) in-place.
+     * @param counter Counter value incremented by the number of blocks processed.
      * @param dst Destination buffer. dst and src may alias.
      * @param src Source buffer. dst and src may alias.
      * @param nrBlocks Number of 128-bit blocks to process. nrBlocks must be between 1 and 8 (inclusive).
      * @return CRC-32C Result of the plain-text data.
      */
     template<bool ENCRYPT>
-    inline uint32_t CTRProcess8FullBlocks(uint32_t CRC, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t nrBlocks)
+    uint32_t CTRProcess8FullBlocks(uint32_t CRC, __m128i &counter, __uint128_t *dst, const __uint128_t *src, size_t nrBlocks) const
     {
-        auto mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[0]));\
+        auto mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[0]));\
         auto cypher0 = AES128::Round0<0>(counter, mm_key, nrBlocks);
         auto cypher1 = AES128::Round0<1>(counter, mm_key, nrBlocks);
         auto cypher2 = AES128::Round0<2>(counter, mm_key, nrBlocks);
@@ -188,7 +201,7 @@ class AES128 {
         auto cypher7 = AES128::Round0<7>(counter, mm_key, nrBlocks);
 
 #define AES128_ROUND(instruction, ROUND)\
-        mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&keyRounds[ROUND]));\
+        mm_key = _mm_load_si128(reinterpret_cast<const __m128i *>(&keyRounds[ROUND]));\
         switch (nrBlocks) {\
         case 8: cypher7 = instruction(cypher7, mm_key);\
         case 7: cypher6 = instruction(cypher6, mm_key);\
@@ -224,7 +237,12 @@ class AES128 {
     }
 
 public:
-    inline AES128(__uint128_t key) : key(key) {
+    /** Constructor
+     * @param key 128-bit AES-key.
+     */
+    AES128(__uint128_t key) :
+        key(key)
+    {
         auto mm_key = _mm_load_si128(reinterpret_cast<__m128i *>(&key));
 
         _mm_store_si128(reinterpret_cast<__m128i *>(&keyRounds[0]), mm_key);
@@ -252,14 +270,16 @@ public:
 
     /** Process (encrypt/decrypt) buffer.
      *
+     * @param ENCRYPT true to encrypt, false to decrypt.
+     * @param CRC32_LOCATION Location of the CRC-32C value in the encrypted data, to ignore.
      * @param counter CTR counter+nonce value at start of buffer.
      * @param dst Destination buffer. Dst and src may alias.
      * @param src Source buffer. Dst and src may alias.
      * @param size Size of the src and dst buffers in bytes.
-     * @return CRC-32C value of the src buffer.
+     * @return CRC-32C value of the plain-text data.
      */
     template<bool ENCRYPT, ssize_t CRC32_LOCATION=-1>
-    uint32_t CTRProcess(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t size)
+    uint32_t CTRProcess(__uint128_t _counter, __uint128_t *dst, const __uint128_t *src, size_t size) const
     {
         uint32_t CRC = 0xffffffff;
         auto counter = _mm_load_si128(reinterpret_cast<__m128i *>(&_counter));
@@ -269,7 +289,9 @@ public:
         size_t doneBlocks = 0;
 
         if (CRC32_LOCATION >= 0) {
-            // XXX assert(size >= CRC32_LOCATION + sizeof (uint32));
+            if (size < (CRC32_LOCATION + sizeof (uint32_t))) {
+                BOOST_THROW_EXCEPTION(aes128_crc_location_error());
+            }
 
             // Process all the full blocks, up to 8, before the block with the CRC inside it.
             const size_t CRC32_BLOCK_LOCATION = CRC32_LOCATION / sizeof (__uint128_t);
@@ -296,7 +318,7 @@ public:
 
         // Process all the full blocks, up to 8, until the end of the data.
         while (todoBlocks > 0) {
-			auto nrBlocks = std::min(todoBlocks, static_cast<size_t>(8));
+            auto nrBlocks = std::min(todoBlocks, static_cast<size_t>(8));
 
             CRC = CTRProcess8FullBlocks<ENCRYPT>(CRC, counter, &dst[doneBlocks], &src[doneBlocks], nrBlocks);
 
@@ -313,16 +335,20 @@ public:
         return CRC ^ 0xffffffff;
     }
 
-    /** Decrypt buffer.
+    /** Process (encrypt/decrypt) buffer.
+     * This function allows dst or src to be unaligned.
+     * It may need to copy dst or src internally to align.
      *
+     * @param ENCRYPT true to encrypt, false to decrypt.
+     * @param CRC32_LOCATION Location of the CRC-32C value in the encrypted data, to ignore.
      * @param counter CTR counter+nonce value at start of buffer.
      * @param dst Destination buffer. Dst and src may alias.
      * @param src Source buffer. Dst and src may alias.
      * @param size Size of the src and dst buffers in bytes.
-     * @return CRC-32C value of the dst buffer.
+     * @return CRC-32C value of the plain-text data.
      */
     template<bool ENCRYPT, ssize_t CRC32_LOCATION=-1>
-    uint32_t CTRProcess(__uint128_t counter, void *dst, const void *src, size_t size)
+    uint32_t CTRProcess(__uint128_t counter, void *dst, const void *src, size_t size) const
     {
         const __uint128_t *src128;
         __uint128_t *dst128;
@@ -355,8 +381,16 @@ public:
         return CRC;
     }
 
+    /** Process (encrypt/decrypt) buffer.
+     *
+     * @param ENCRYPT true to encrypt, false to decrypt.
+     * @param CRC32_LOCATION Location of the CRC-32C value in the encrypted data, to ignore.
+     * @param counter CTR counter+nonce value at start of buffer.
+     * @param src A string to process.
+     * @return CRC-32C value of the plain-text data and the processed string.
+     */
     template<bool ENCRYPT, ssize_t CRC32_LOCATION=-1>
-    std::pair<uint32_t, std::string> CTRProcess(__uint128_t counter, const std::string &src)
+    std::pair<uint32_t, std::string> CTRProcess(__uint128_t counter, const std::string &src) const
     {
         auto dst = new __uint128_t[nrItems<__uint128_t>(src.size())];
 
@@ -368,14 +402,5 @@ public:
         return std::pair<uint32_t, std::string>(CRC, dstString);
     }
 };
-
-uint32_t AES128CompilerTest(__uint128_t key, __uint128_t counter, __uint128_t *buffer, size_t buffer_size)
-{
-    auto C = AES128(key);
-
-    auto CRC = C.CTRProcess<true>(counter, buffer, buffer, buffer_size);
-
-    return CRC;
-}
 
 };};
