@@ -13,26 +13,41 @@ The complete packet including the header is encryped using AES128-CTR.
 
 Exceptions to encryption:
 
- * First 8 bits (sequenceNr and type) of the packet is XOR-ed
-   with second 8 bit of the encrypted-packet. This scrambling is used
-   to frustrate middle-boxes with reading the sequence number and type.
- * The extraHeader is neither encrypted nor scrambled.
+ * The first 64 bits of the packet is in plain-text.
+ * The publicKey in the OPEN packet is in plain-text.
+
+The reason for the first 64 bits being in plain-text is:
+
+ * Type is needed because during open we don't know the key yet.
+ * SequenceNr is needed for the counter value of the encryption.
+ * AcknowledgeNr is needed for the counter value of the encryption.
+ * AkcnowledgeMask is needed for the counter value of the encryption.
+ * Length is used inside the Linux kernel to split TCP messages into a message stream.
+
+During retransmits of the same message the acks and CRC will change. We need to
+add information about acks into the CTR-value so that we never reuse the CTR-value:
+
+CTR = nonce + (sequenceNr:64, acknowledgeNr:6, popcount(acknowledgeMask):5, blockNr:12)
+
+Maybe a special ACK message can be created that does not encrypt anything,
+and may be smaller (only half the header).
+
 
 ```
 struct Header[16] {
-    uint2_t             type;           // Scrambled
-    uint6_t             sequenceNr;     // Scrambled
-    bool                fragment;
-    bool                message;
-    uint6_t             acknowledgeNr;
-    uint16_t            length;
-    uint32_t            reliabilityMask;
-    uint32_t            acknowledgeMask;
+    uint2_t             type;               // Plain-text
+    uint6_t             sequenceNr;         // Plain-text
+    bool                fragment;           // Plain-text
+    bool                message;            // Plain-text
+    uint6_t             acknowledgeNr;      // Plain-text
+    uint16_t            length;             // Plain-text
+    uint32_t            acknowledgeMask;    // Plain-text
+    uint32_t            reliabilityMask;    
     uint32_t            crc32c;
 };
 
 struct OpenPDU {
-    uint8_t             publicKey[];    // Plain-text
+    uint8_t             publicKey[];        // Plain-text
     uint8_t             data[];
 };
 
