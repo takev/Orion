@@ -302,14 +302,13 @@ The data that will be send to the application.
 
 ### Error Code
 
- *     0 -       No Error (Which is an error)
- *     1 -       Checksum incorrect - possible wrong AES-key used.
- *     2 -       Incorrect sequence number.
- *     3 -       Incorrect flags.
- *     4 -       Non empty sequence numbers during open.
- *       -   255 Reserved by RITP
- *   256 - 65535 Reserced by RITP Services
- * 65556 -       Application errors
+| Code | Description                                       |
+| ----:| ------------------------------------------------- |
+|    0 | No Error.                                         |
+|    1 | Checksum incorrect - possible wrong AES-key used. |
+|    2 | Incorrect sequence number.                        |
+|    3 | Incorrect flags.                                  |
+|    4 | Non empty sequence numbers during open.           |
 
 ### Error Message
 Error message in english to be presented to a user.
