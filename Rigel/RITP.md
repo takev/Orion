@@ -24,65 +24,126 @@ The reason for the first 64 bits being in plain-text is:
  * AkcnowledgeMask is needed for the counter value of the encryption.
  * Length is used inside the Linux kernel to split TCP messages into a message stream.
 
-During retransmits of the same message the acks and CRC will change. We need to
-add information about acks into the CTR-value so that we never reuse the CTR-value:
-
-CTR = nonce + (sequenceNr:64, acknowledgeNr:6, popcount(acknowledgeMask):5, blockNr:12)
-
-Maybe a special ACK message can be created that does not encrypt anything,
-and may be smaller (only half the header).
-
+### Open
+The first 12 bytes are send in plain-text. This means an error message can include
+de session-cookie in response.
 
 ```
-struct Header[16] {
-    uint2_t             type;               // Plain-text
-    uint6_t             sequenceNr;         // Plain-text
-    bool                fragment;           // Plain-text
-    bool                message;            // Plain-text
-    uint6_t             acknowledgeNr;      // Plain-text
-    uint16_t            length;             // Plain-text
-    uint32_t            acknowledgeMask;    // Plain-text
-    uint32_t            reliabilityMask;    
-    uint32_t            crc32c;
-};
-
-struct OpenPDU {
-    uint8_t             publicKey[];        // Plain-text
-    uint8_t             data[];
-};
-
-struct ClosePDU {
-    uint8_t             data[];
-};
-
-struct DataPDU {
-    uint8_t             data[];
-};
-
-struct ErrorPDU {
-    uint32_t            errorCode;      // Plain-text
-    uint8_t             errorMessage[]; // Plain-text
-};
-
-struct Packet[header.length] {
-    Header              header;
-
-    switch (header.type) {
-    case 0: OpenPDU     pdu;
-    case 1: DataPDU     pdu;
-    case 2: ClosePDU    pdu;
-    case 3: ErrorPDU    pdu;
-    }
-};
-
+    :    Byte 0     :    Byte 1     :    Byte 2     :    Byte 3     :
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  0 | TYP |         Length          | VER |   Public Key Length     |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  4 |                                                               |
+    +                        Session Cookie                         +
+  8 |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ 12 |                            CRC-32C                            |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ 16 |                                                               |
+    /                                                               /
+                                Public Key
+    /                                                               /
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               |
+    /                                                               /
+                                   Data
+    /                                                               /
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-### Type
+### Transfer
+The first 8 bytes are send in plain-text; the SeqNr, AckNr, AcknowledgeMask
+are needed to create the CTR value for the AES-CTR-mode encryption/decryption.
 
- * 0 - Open connecion
- * 1 - Established connection
- * 2 - Close connection
- * 3 - Error
+This means that if the AckNr or AcknowledgeMask changes when the packet needs
+to be retransmitted, then the packet needs the be re-encrypted with the new
+CTR value. This is required so we don't reuse the CTR value and potentially
+allow spoofing of the CRC-32C value.
+
+```
+    :    Byte 0     :    Byte 1     :    Byte 2     :    Byte 3     :
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  0 | TYP |         Length          |     AckNr     |     SeqNr     |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  4 |                        Acknowledge Mask                       |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  8 |                        Reliability Mask                       |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ 12 |                            CRC-32C                            |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ 16 |                                                               |
+    /                                                               /
+                                  Data
+    /                                                               /
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+### Acknowledge / Keepalive
+The first 8 bytes are send in plain-text. The encrypted session cookie
+is used for authenticating this packet.
+
+The sequence number used in the CTR is set to 0x00ffffffffffffff.
+
+The short format is used when sending acknowledments of packets received without
+needed to send- or retransmit data. These acknowledgement packets are also
+used for keep-alives.
+
+```
+    :    Byte 0     :    Byte 1     :    Byte 2     :    Byte 3     :
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  0 |TYP=6|        Length = 8       |     AckNr     |  Reserved=0   |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  4 |                        Acknowledge Mask                       |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  8 |                                                               |
+    +                         Session Cookie                        +
+ 12 |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+
+### Error
+The complete error packet is send in plain-text, since one of the reasons
+for an error may be an incorrect encryption-key.
+
+However an error packet MUST only be accepted if the packet
+contains a valid Session Cookie.
+
+Both peers will need to reply to non-error packets with an error packet
+using the current Session Cookie for up to 60 seconds.
+
+```
+    :    Byte 0     :    Byte 1     :    Byte 2     :    Byte 3     :
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  0 |TYP=7|        Length = 12      |     AckNr     |  Error Code   |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  4 |                                                               |
+    +                        Session Cookie                         +
+  8 |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+## Fields
+
+### VER - Version
+Current version of the protocol is 0.
+
+### TYPE
+There are several different packet in this protocol:
+
+ TYPE | Description
+ ----:| -----------
+    0 | Open Connection
+    1 | Open Connection, data is fragmented
+    2 | Open Connection, then close
+    3 | Transfer
+    4 | Transfer, data is fragmented
+    5 | Transfer, then close
+    6 | Acknowledge
+    7 | Error
 
 #### Open connection
 This is the first packet send by the client to the server.
@@ -124,7 +185,7 @@ This is the length of the packet including the header. This is needed when encap
 RITP inside a streaming protocol such as TCP.
 
 ### Sequence Number
-The least significant 8 bits of the virtual 64 bit sequence number.
+The least significant 6 bits of the virtual 56 bit sequence number.
 Sequence number zero represents the sequence number before opening the connection
 and is used when acknowledging an OPEN packet without responding with data.
 
@@ -143,7 +204,7 @@ Messages are always passed to the application in the correct order. But unreliab
 messages may never arrive.
 
 ### Acknowledge Number
-The least significant 8 bits of the sequence number of the last packet received.
+The least significant 6 bits of the sequence number of the last packet received.
 As long as references to all the unreceived reliable-packets fit in the acknowledge-mask.
 
 At the start this mask is zero, as if all messages before the OPEN where send unreliably.
@@ -178,13 +239,55 @@ From the lsb to msb, the 512-bit value divided into four 128-bit values:
  * client-side-IV
  * server-side-IV
 
-The whole packet (except for the first byte of a packet and the public key) will be
-encypted using AES in CTR mode. The counter is a 128-bit little-endian integer which
-begins at the initial-value (IV) adding the blockNr and sequenceNr to it:
+### AES Encryption of the packet
+The whole packet (except for the first 64 bit) will be encypted using AES in CTR mode.
+
 
 ```
-counter <= IV + (sequenceNr << 64 | blockNr);
+
+                     +-----------+        +---+
+                     |    CTR    |        | 1 |
+                     +-----------+        +---+
+                           |                |
+                           v                v
+    +-----------+        +---+            +---+
+    |    IV     |------->| + |------------| + |
+    +-----------+        +---+            +---+
+                           |                |
+                           v                v
+                     +-----------+    +-----------+
+                     |    AES    |    |    AES    |
+                     +-----------+    +-----------+
+                           |                |
+                           v                v
+                 +----+  +---+    +----+  +---+
+                 | M0 |->| ^ |    | M1 |->| ^ |
+                 +----+  +---+    +----+  +---+
+                           |                |
+                           v                v
+                        +----+           +----+
+                        | C0 |           | C1 |
+                        +----+           +----+
 ```
+
+
+CTR for encrypting:
+```
+    :    Byte 0     :    Byte 1     :    Byte 2     :    Byte 3     :
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  0 |  Block Number   |POP(AckMsk)|0|                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
+  4 |                         Acknowledge Nr                        |
+    +               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  8 |               |                                               |
+    +-+-+-+-+-+-+-+-+        Full Sequence Nr                       +
+ 12 |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+This CTR is treated as a 128 bit unsigned integer with roll-over.
+The IV that is created during the key-exchange process is simply
+added to this CTR value before it is encrypted with AES.
 
 ### Checksum
 A CRC-32C checksum of the complete non-encrypted packet including the header.
