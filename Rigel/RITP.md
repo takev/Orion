@@ -134,16 +134,16 @@ Current version of the protocol is 0.
 ### TYPE
 There are several different packet in this protocol:
 
- TYPE | Description
- ----:| -----------
-    0 | Open Connection
-    1 | Open Connection, data is fragmented
-    2 | Open Connection, then close
-    3 | Transfer
-    4 | Transfer, data is fragmented
-    5 | Transfer, then close
-    6 | Acknowledge
-    7 | Error
+| TYPE | Description                         |
+| ----:| ----------------------------------- |
+|    0 | Open Connection                     |
+|    1 | Open Connection, data is fragmented |
+|    2 | Open Connection, then close         |
+|    3 | Transfer                            |
+|    4 | Transfer, data is fragmented        |
+|    5 | Transfer, then close                |
+|    6 | Acknowledge                         |
+|    7 | Error                               |
 
 #### Open connection
 This is the first packet send by the client to the server.
