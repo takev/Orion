@@ -16,6 +16,12 @@
  */
 #pragma once
 
+#include <cstdint>
+#include <atomic>
+#include <boost/exception/all.hpp>
+#include "Time.hpp"
+#include "int_utils.hpp"
+
 namespace Orion {
 namespace Rigel {
 
@@ -24,13 +30,17 @@ struct host_id_overflow: virtual boost::exception, virtual std::exception {};
 struct HostID {
     uint16_t intrinsic;
 
+    HostID(void) = default;
+
+    HostID(uint16_t x) : intrinsic(x) {}
+
     inline void check(void)
     {
-        if (hostID > 0xfff) {
+        if (intrinsic > 0xfff) {
             BOOST_THROW_EXCEPTION(host_id_overflow());
         }
     }
-}
+};
 
 /** A cluster wide unique ID.
  * The unique ID is build up as follows:
@@ -39,6 +49,10 @@ struct HostID {
  */
 struct UniqueID {
     uint64_t intrinsic;
+
+    UniqueID(void) = default;
+
+    UniqueID(uint64_t x) : intrinsic(x) {}
 
     inline HostID getHostID(void)
     {
@@ -50,7 +64,7 @@ struct UniqueID {
         hostID.check();
 
         intrinsic &= 0x000f'ffff'ffff'ffffULL;
-        intrinsic |= hostID.intrinsic << 52;
+        intrinsic |= static_cast<uint64_t>(hostID.intrinsic) << 52;
     }
 
     inline Time getTime(void)
@@ -66,14 +80,14 @@ struct UniqueID {
 
     inline UniqueID operator()(HostID hostID)
     {
-        auto tmp = UniqueID{intrinsic};
+        auto tmp = UniqueID(intrinsic);
         tmp.setHostID(hostID);
         return tmp;
     }
 
     inline UniqueID operator()(Time time)
     {
-        auto tmp = UniqueID{intrinsic};
+        auto tmp = UniqueID(intrinsic);
         tmp.setTime(time);
         return tmp;
     }
@@ -82,10 +96,10 @@ struct UniqueID {
     {
         return intrinsic > other.intrinsic;
     }
-}
+};
 
 struct Identifiers {
-    atomic<uint64_t> lastUniqueID;  ///< The intrinsic value of a UniqueID.
+    std::atomic<uint64_t> lastUniqueID;  ///< The intrinsic value of a UniqueID.
 
     /** Set the host ID of this host.
      *
@@ -95,10 +109,13 @@ struct Identifiers {
     {
         hostID.check();
 
+        uint64_t id;
+        uint64_t newId;
         do {
-            UniqueID id = UniqueID{lastUniqueID.load()};
-            UniqueID new_id = id(hostID);
-        } while (lastUniqueID.compare_exchange_weak(id.intrinsic, new_id.intrinsic));
+            id = lastUniqueID.load();
+            auto tmp = UniqueID(id);
+            newId = tmp(hostID).intrinsic;
+        } while (lastUniqueID.compare_exchange_weak(id, newId));
     }
 
     /** Get the hostID.
@@ -109,7 +126,7 @@ struct Identifiers {
      */
     inline HostID getHostID(void)
     {
-        UniqueID id = UniqueID{lastUniqueID.load()};
+        UniqueID id = UniqueID(lastUniqueID.load());
         return id.getHostID();
     }
 
@@ -134,6 +151,6 @@ struct Identifiers {
 
         return valid_new_id ? new_id : id;
     }
-}
+} __attribute__ ((aligned(CACHE_LINE_SIZE)));
 
 };};

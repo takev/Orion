@@ -29,12 +29,22 @@
 #define fixed_subborrow_u64(borrow, a, b, result) _subborrow_u64(borrow, a, b, result)
 #endif
 
+const size_t CACHE_LINE_SIZE = 64;
+
 template<typename R, typename T>
-static inline bool isAligned(T *p)
+constexpr bool isAligned(T *p)
 {
     auto _p = reinterpret_cast<uintptr_t>(p);
 
     return (_p % std::alignment_of<R>::value) == 0;
+}
+
+template<typename R>
+constexpr size_t padSize(size_t offset)
+{
+    auto padding = sizeof(R) - (offset % sizeof(R));
+
+    return (padding == sizeof(R)) ? 0 : padding;
 }
 
 /** Return the number of items in size.
@@ -42,7 +52,7 @@ static inline bool isAligned(T *p)
  * included in the result.
  */
 template<typename R>
-static inline size_t nrItems(size_t size)
+constexpr size_t nrItems(size_t size)
 {
     return (size + sizeof(R) - 1) / sizeof(R);
 }
@@ -50,12 +60,12 @@ static inline size_t nrItems(size_t size)
 /** Extend size so it will include the partial item at the end.
  */
 template<typename R>
-static inline size_t extendSize(size_t size)
+constexpr size_t extendSize(size_t size)
 {
     return nrItems<R>(size) * sizeof(R);
 }
 
-static inline uint64_t rotr(uint64_t x, int shift)
+constexpr uint64_t rotr(uint64_t x, int shift)
 {
     return (x >> shift) | (x << (64 - shift));
 }
@@ -72,4 +82,6 @@ static inline __m128i mm_inc_si128(__m128i counter)
     auto one = _mm_shuffle_epi32(reverse_one, _MM_SHUFFLE(1, 0, 3, 2));
     return _mm_sub_epi64(counter, one);
 }
+
+
 

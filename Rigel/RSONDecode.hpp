@@ -27,7 +27,6 @@
 
 namespace Orion {
 namespace Rigel {
-namespace RSON {
 
 // Forward for decoding anything in a list and dictionary.
 static inline boost::any decode(std::istream &stream);
@@ -382,4 +381,4 @@ static inline boost::any decode(const std::string &str)
 }
 
 
-};};};
+};};

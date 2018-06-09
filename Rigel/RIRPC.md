@@ -1,0 +1,201 @@
+# Rigel Remote Procedure Call (RiRPC)
+
+## RPC Protocol
+
+Call:
+```
+    :    Byte 0     :    Byte 1     :    Byte 2     :    Byte 3     :
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  0 |                              Tag                              |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  4 |                           Function ID                         |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  8 |                                                               |
+    /                                                               /
+                                 Arguments
+    /                                                               /
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+Response:
+```
+    :    Byte 0     :    Byte 1     :    Byte 2     :    Byte 3     :
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  0 |                              Tag                              |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  4 |                           Function ID                         |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  8 |                             Result                            |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ 12 |                                                               |
+    /                                                               /
+                                Return Value
+    /                                                               /
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+### Tag
+
+### FunctionID
+
+### Arguments
+
+### Result
+Signed 32 bit integer. Positive values mean success, and negative values
+are failures.
+
+### Return Value
+
+## Environment
+A complete RPC installation is called an environment. There is normally no communications possible
+between environments. An organisation may use multiple environments, dedicated for: development,
+quality-assurance and production.
+
+## RigelNameServer
+Each environment runs one or multiple-redundant name-servers. Name servers keep track of all host that are part of
+an environment and all services running on each host. It also is the main time source of the environment.
+
+The data is encoded using [RSON](RSON.md).
+
+### Register Host and time sychronization
+A Host need to register with the name server every 5 minutes. If after 6 minutes the
+the host has not registers itself, the host and its services are removed.
+
+Call "registerHostAndTimeSynchronization":
+```
+{
+    "environment": <string>,
+    "hostTimestamp": <int>,
+    "hostName": <string>,
+}
+```
+
+Response = 0: Host registered.
+```
+{
+    "masterTimestamp": <int>,
+    "hostTimestamp": <int>,
+    "hostID": <int>,
+}
+```
+
+Response = -1: Incorrect environment.
+Response = -2: HostName already registered on different connection.
+
+### Update Service
+
+Call "updateService":
+```
+{
+    "register: <bool>,
+    "serviceName: <string>,
+    "MODPGroupID": <int>,
+    "publicKey": <int>,
+    "listeners": [<string>, ...],
+    "fuctions": [{"name": <string>, "ID": <int> }, ...]
+}
+```
+
+Response = 0: Service registered
+Response = -1: Service already registered
+
+### Search Service
+
+Call "searchService":
+```
+{
+    "serviceName": <string>
+}
+```
+
+Response = -1: Service not found
+Response = 0: Service found
+```
+{
+    "serviceName": <string>
+    "instances": [{
+        "ServiceName
+        "MODPGroupID": <int>,
+        "publicKey": <int>,
+        "listeners": [<string>, ...]
+        "fuctions": [{"name": <string>, "ID": <int>}, ...]
+    }, ...]
+}
+```
+
+### Get authentication cookie
+A RigelHostService knows the username of the application that has connected to it with
+UNIX Domain Sockets. It can ask the nameserver for a authnetication cookie, which
+is passed back to the application. The application can then use this cookie, only once,
+to proof to a service what it's username is.
+
+The cookie is authomatically destroyed after 60 seconds.
+
+Call "getAuthenticationCookie":
+```
+{
+    "userName": <string>
+}
+```
+
+Response = 0: Authenticated
+```
+{
+    "authenticationCookie": <int>
+}
+```
+
+### Check authentication cookie
+A service will receive the nodeId, userName and authenticationCookie. It can request from the
+RigelNameServer is this combination is correct.
+
+After this call, the cookie is destroyed on the RigelNameServer.
+
+Call "checkAuthenticationCookie"
+```
+{
+    "nodeID": <int>,
+    "userName": <string>,
+    "authenticationCookie": <int>
+}
+```
+
+Response = -1: Cookie does not match nodeId or username
+Response = 0: Authenticated
+
+### RigelNameServer locator
+Since the location of the RigelNameServer itself can not be searched. The search result for
+"RigelNameServer" is distributed as a file; generated by the RigelNameServer and read by RigelHostServices.
+
+The distribution of the RigelNameServerLocation.rson file is up to the system administrator.
+
+
+## RigelHostServices
+Each host in a Environment will run a single RigelHostService.
+Services will connect with the RigelHostService through UNIX-domain-sockets and shared memory.
+These communication methods are secure, authenticated and high performant.
+
+A Constelation server offers the following services to Stars and Planets running on a host.
+ * Authentication,
+ * Startup of services,
+ * Services-proxy,
+ * Service-locators,
+ * Environment-Host-ID,
+ * Environment-Unique-IDs,
+ * Logging,
+ * Time-synchronization.
+
+### Services-proxy
+The service-proxy is an easy way to call services in the environment, without the overhead of creating and managing an
+encrypted connection directly to a service. This is useful for management applications and for contacting services
+outside of transactions.
+
+Keep in mind that a service MUST connect to other services directly for processing of transactions.
+
+
+## Service
+Services running on a host will contact the RigelHostService to register itself and find other services.
+
+

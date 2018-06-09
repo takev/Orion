@@ -30,7 +30,6 @@
 
 namespace Orion {
 namespace Rigel {
-namespace RSON {
 
 struct encode_error: virtual boost::exception {};
 struct encode_type_error: virtual encode_error, virtual std::exception {};
@@ -301,4 +300,4 @@ static inline void encode(std::ostream &stream, const T &value)
     stream.write(s.data(), s.length());
 }
 
-};};};
+};};

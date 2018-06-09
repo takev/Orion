@@ -22,7 +22,6 @@
 
 namespace Orion {
 namespace Rigel {
-namespace RSON {
 
 template<typename T>
 static inline size_t lengthInteger(T value)
@@ -100,4 +99,4 @@ static inline size_t length(const std::map<U, V> &container)
     return r;
 }
 
-};};};
+};};

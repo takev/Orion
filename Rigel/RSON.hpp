@@ -25,8 +25,6 @@ namespace Rigel {
  *
  * Documentation for RSON binary format can be found here: [RSON.md](RSON.md).
  */
-namespace RSON {
-
 const char MARK_CODE = 0x00;
 const char NONE_CODE = 0x10;
 const char TRUE_CODE = 0x11;
@@ -40,4 +38,4 @@ const char UTF8_STRING_CODE = 0x18;
 const char RESERVED1_CODE = 0x19;
 const char RESERVED2_CODE = 0x1a;
 
-};};};
+};};

@@ -26,7 +26,7 @@
 
 using namespace std;
 using namespace boost;
-using namespace Orion::Rigel::RSON;
+using namespace Orion::Rigel;
 
 BOOST_AUTO_TEST_CASE(EncodeString)
 {

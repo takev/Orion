@@ -24,7 +24,7 @@ The reason for the first 64 bits being in plain-text is:
  * AkcnowledgeMask is needed for the counter value of the encryption.
  * Length is used inside the Linux kernel to split TCP messages into a message stream.
 
-### Open
+### OPEN, OPEN-FRAG, OPEN-CLOSE
 The first 12 bytes are send in plain-text. This means an error message can include
 de session-cookie in response.
 
@@ -33,9 +33,9 @@ de session-cookie in response.
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
   0 | TYP |         Length          | VER |   Public Key Length     |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  4 |                                                               |
-    +                        Session Cookie                         +
-  8 |                                                               |
+  4 |                          Reserved = 0                         |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  8 |                         Session Cookie                        |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  12 |                            CRC-32C                            |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -53,7 +53,7 @@ de session-cookie in response.
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-### Transfer
+### DATA, DATA-FRAG, DATA-CLOSE
 The first 8 bytes are send in plain-text; the SeqNr, AckNr, AcknowledgeMask
 are needed to create the CTR value for the AES-CTR-mode encryption/decryption.
 
@@ -81,48 +81,41 @@ allow spoofing of the CRC-32C value.
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-### Acknowledge / Keepalive
-The first 8 bytes are send in plain-text. The encrypted session cookie
-is used for authenticating this packet.
+### CONTROL
+The first 8 bytes are send in plain-text. The sequence number used in the CTR
+is set to 0xff'ffff'ffff'ffff.
 
-The sequence number used in the CTR is set to 0x00ffffffffffffff.
+The encrypted session cookie is used for authenticating this packet.
+An CONTROL packet without a valid session cookie must be ignored.
+There is only one exception, when the CONNTROL packet is in reply to
+an OPEN packet, where the key-exchange may have failed.
 
-The short format is used when sending acknowledments of packets received without
-needed to send- or retransmit data. These acknowledgement packets are also
-used for keep-alives.
+The CONTROL packet is used for:
+
+ * Acknowleding packets when there is no DATA packet ready to be (re-)send.
+ * Keep-alive packets to keep firewalls from dropping the connection.
+ * When an error needs to be reported.
+
+In case of error Both peers will need to reply to non-error packets with an
+error packet using the current Session Cookie for up to 60 seconds.
 
 ```
     :    Byte 0     :    Byte 1     :    Byte 2     :    Byte 3     :
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  0 |TYP=6|        Length = 8       |     AckNr     |  Reserved=0   |
+  0 |TYP=7|        Length = 12      |     AckNr     |  ControlCode  |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
   4 |                        Acknowledge Mask                       |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  8 |                                                               |
-    +                         Session Cookie                        +
- 12 |                                                               |
+  8 |                         Session Cookie                        |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-
-### Error
-The complete error packet is send in plain-text, since one of the reasons
-for an error may be an incorrect encryption-key.
-
-However an error packet MUST only be accepted if the packet
-contains a valid Session Cookie.
-
-Both peers will need to reply to non-error packets with an error packet
-using the current Session Cookie for up to 60 seconds.
-
+This is the CONTROL message format for an error in reply to an OPEN packet
+where the key-exchange has failed:
 ```
     :    Byte 0     :    Byte 1     :    Byte 2     :    Byte 3     :
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  0 |TYP=7|        Length = 12      |     AckNr     |  Error Code   |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  4 |                                                               |
-    +                        Session Cookie                         +
-  8 |                                                               |
+  0 |TYP=7|        Length = 4       |     AckNr     |  ControlCode  |
     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
@@ -134,16 +127,16 @@ Current version of the protocol is 0.
 ### TYPE
 There are several different packet in this protocol:
 
-| TYPE | Description                         |
-| ----:| ----------------------------------- |
-|    0 | Open Connection                     |
-|    1 | Open Connection, data is fragmented |
-|    2 | Open Connection, then close         |
-|    3 | Transfer                            |
-|    4 | Transfer, data is fragmented        |
-|    5 | Transfer, then close                |
-|    6 | Acknowledge                         |
-|    7 | Error                               |
+| TYPE | Name       | Description                         |
+| ----:| ---------- | ----------------------------------- |
+|    0 | OPEN       | Open Connection                     |
+|    1 | OPEN-FRAG  | Open Connection, data is fragmented |
+|    2 | OPEN-CLOSE | Open Connection, then close         |
+|    3 | DATA       | Transfer                            |
+|    4 | DATA-FRAG  | Transfer, data is fragmented        |
+|    5 | DATA-CLOSE | Transfer, then close                |
+|    6 |            |                                     |
+|    7 | CONTROL    | Acknowledge / Keep-alive / Error    |
 
 #### Open connection
 This is the first packet send by the client to the server.
@@ -300,15 +293,22 @@ the header should be set to zero.
 ### Data
 The data that will be send to the application.
 
-### Error Code
+### Control Code
+
+| Range    | Description
+| --------:| ------------------------------------------------ |
+|  0 -  15 | No error, first 8 bytes are plain-text           |
+| 15 -  63 | OPEN error, packet is plain-text                 |
+| 64 - 255 | Other error, first 8 bytes are plain-text        |
 
 | Code | Description                                       |
 | ----:| ------------------------------------------------- |
-|    0 | No Error.                                         |
-|    1 | Checksum incorrect - possible wrong AES-key used. |
-|    2 | Incorrect sequence number.                        |
-|    3 | Incorrect flags.                                  |
-|    4 | Non empty sequence numbers during open.           |
+|    0 | No Error. Acknowledge or Keepalive.               |
+|    1 | OPEN Error, could not decrypt.                    |
+|    2 | Checksum incorrect - possible wrong AES-key used. |
+|    3 | Incorrect sequence number.                        |
+|    4 | Incorrect flags.                                  |
+|    5 | Non empty sequence numbers during open.           |
 
 ### Error Message
 Error message in english to be presented to a user.

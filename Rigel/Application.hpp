@@ -17,65 +17,57 @@
 #pragma once
 #include <cstdint>
 #include <atomic>
+#include <memory>
 #include <boost/filesystem.hpp>
 #include <x86intrin.h>
 
 #include "Time.hpp"
 #include "Identifiers.hpp"
+#include "RunLoop.hpp"
 //#include "Logging.hpp"
 
 namespace Orion {
 namespace Rigel {
-
-const_expr size_t cachePaddingWidth(size_t previousObjectWidth)
-{
-    size_t tmp = previousObjectWidth % CACHE_LINE_WIDTH;
-    return CACHE_LINE_WIDTH - tmp;
-}
-
-enum class HostServicesSharedMemoryState {
-}
 
 /**
  * For performace reasons every field should be aligned to a cache line.
  * This is because a write in a field will cause a cache invalidation on all other CPUs/Cores.
  */
 struct HostServicesSharedMemory {
-    HostServicesSharedMemoryState   state;
-    char                            padding1[cachePaddingWidth(sizeof (HostServicesSharedMemoryState))];
-
     Identifiers                     identifiers;
-    char                            padding2[cachePaddingWidth(sizeof (Identifier))];
-
     TimeCalibration                 timeCalibration;
-    char                            padding3[cachePaddingWidth(sizeof (TimeCalibration))];
 
     //Logging                         logging;
-    //char                            padding4[cachePaddingWidth(sizeof (Logging))];
-}
+};
 
 /** Application singleton.
  * An instance of this class can be used to call different application level services.
  * 
  */
 class Application final {
-private:
-    boost::filesystem::path shared_mem_path;
-
-    HostServicesSharedMemory *shared_mem;
-
-
 public:
-    Application(const char *argv[], int argc);
+    HostServicesSharedMemory *sharedMemory;
+    std::shared_ptr<RunLoop> runloop;
+
+    Application(int argc, const char *argv[]);
+
+    Application(const Application &other) : sharedMemory(other.sharedMemory), runloop() {}
+
     ~Application();
+
+    Application &operator=(const Application &other)
+    {
+        sharedMemory = other.sharedMemory;
+        return *this;
+    }
 
     /** Get the cluster host ID.
      *
      * @return A 12 bit cluster host ID.
      */
-    inline Host getHostId()
+    inline HostID getHostId()
     {
-        return shared_mem->identifiers.getHostID();
+        return sharedMemory->identifiers.getHostID();
     }
 
     /** Get the time.
@@ -84,9 +76,9 @@ public:
      */
     inline Time getTime()
     {
-        auto ticks = Time::getTicks()
+        auto ticks = getTicks();
 
-        return ticks(shared_mem->timeCalibration);
+        return ticks(sharedMemory->timeCalibration);
     }
 
     /** A cluster wide unique ID.
@@ -103,7 +95,7 @@ public:
      */
     inline UniqueID getUniqueID()
     {
-        return identifiers.getUniqueID(getTime());
+        return sharedMemory->identifiers.getUniqueID(getTime());
     }
 
     /**
@@ -112,14 +104,23 @@ public:
     //template<typename FIRST, typename... REST>
     //inline void log(std::string file, uint64_t line, std::string msg, REST... rest)
     //{
-    //    shared_mem->logging.log(file, line, msg, rest);
+    //    sharedMemory->logging.log(file, line, msg, rest);
     //}
+
+    void connectToNameServer(void);
+
+    void connectToHostServer(void);
+
+    void createSharedMemory(void);
+
+    void createHostServerListener(void);
     
-}
+};
+
+/** HostServices is a singleton.
+ * It needs to be initialized at the start of the application.
+ */
+extern std::shared_ptr<Application> app;
 
 };};
 
-/** HostServices is a singleton.
- * It needs to be initialized as soon as the shared_mem_path is known.
- */
-std::shared_ptr<Rigel::Application::Application> app;
