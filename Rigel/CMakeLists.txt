@@ -8,7 +8,7 @@ add_definitions(-march=broadwell)
 include_directories("${PROJECT_SOURCE_DIR}")
 
 find_package(Boost REQUIRED COMPONENTS system unit_test_framework)
-add_library(OrionRigelLibrary SHA512.cpp RunLoop.cpp Application.cpp)
+add_library(OrionRigelLibrary SHA512.cpp EventHandler.cpp RunLoop.cpp Application.cpp)
 
 set(ORION_RIGEL_LIBRARIES OrionRigelLibrary ${Boost_SYSTEM_LIBRARY})
 set(ORION_RIGEL_TEST_LIBRARIES ${ORION_RIGEL_LIBRARIES} ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})

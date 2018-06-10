@@ -21,6 +21,7 @@
 #include <boost/filesystem.hpp>
 #include <x86intrin.h>
 
+#include "utils.hpp"
 #include "Time.hpp"
 #include "Identifiers.hpp"
 #include "RunLoop.hpp"
@@ -28,6 +29,9 @@
 
 namespace Orion {
 namespace Rigel {
+
+struct application_error: virtual boost::exception {};
+struct application_nosharedmem_error: virtual application_error, virtual std::exception {};
 
 /**
  * For performace reasons every field should be aligned to a cache line.
@@ -67,18 +71,23 @@ public:
      */
     inline HostID getHostId()
     {
+        if (unlikely(sharedMemory == nullptr)) {
+            BOOST_THROW_EXCEPTION(application_nosharedmem_error());
+        }
         return sharedMemory->identifiers.getHostID();
     }
 
     /** Get the time.
      *
-     * @return Number of nanoseconds since 2000.
+     * @return Number of nanoseconds since 1970.
      */
     inline Time getTime()
     {
-        auto ticks = getTicks();
-
-        return ticks(sharedMemory->timeCalibration);
+        if (likely(sharedMemory != nullptr)) {
+            return getTicks()(sharedMemory->timeCalibration);
+        } else {
+            return getSystemTime();
+        }
     }
 
     /** A cluster wide unique ID.
@@ -95,6 +104,9 @@ public:
      */
     inline UniqueID getUniqueID()
     {
+        if (unlikely(sharedMemory == nullptr)) {
+            BOOST_THROW_EXCEPTION(application_nosharedmem_error());
+        }
         return sharedMemory->identifiers.getUniqueID(getTime());
     }
 

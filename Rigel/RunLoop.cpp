@@ -12,31 +12,8 @@ namespace Rigel {
 const int MAX_EPOLL_EVENTS = 10;
 const int EPOLL_DEFAULT_TIMEOUT = 10;
 
-RunLoopObject::RunLoopObject(void) :
-    parent()
-{
-}
-
-RunLoopObject::~RunLoopObject()
-{
-}
-
-void RunLoopObject::setParent(const std::shared_ptr<RunLoop> &runLoop)
-{
-    parent = runLoop;
-}
-
-void RunLoopObject::updatePoll(void)
-{
-    if (auto tmp = parent.lock()) {
-        tmp->updatePoll(shared_from_this(), EPOLL_CTL_MOD);
-    } else {
-        BOOST_THROW_EXCEPTION(runloop_object_error());
-    }
-}
-
 RunLoop::RunLoop(void) :
-    epollFD(-1), pollObjects(), timerObjects()
+    epollFD(-1), pollEventHandlers(), timerEventHandlers()
 {
     if ((epollFD = epoll_create1(0)) == -1) {
         BOOST_THROW_EXCEPTION(runloop_epoll_error() << boost::errinfo_errno(errno));
@@ -45,7 +22,7 @@ RunLoop::RunLoop(void) :
 }
 
 RunLoop::RunLoop(const RunLoop &other) :
-    epollFD(-1), pollObjects(), timerObjects()
+    epollFD(-1), pollEventHandlers(), timerEventHandlers()
 {
     if (other.epollFD != -1) {
         if ((epollFD = dup(other.epollFD)) == -1) {
@@ -66,61 +43,61 @@ RunLoop::~RunLoop()
 
 bool RunLoop::isRunning(void)
 {
-    return !pollObjects.empty();
+    return !pollEventHandlers.empty();
 }
 
-void RunLoop::add(const std::shared_ptr<RunLoopObject> &object)
+void RunLoop::add(const std::shared_ptr<EventHandler> &eventHandler)
 {
-    if (pollObjects.count(object->fileDescriptor()) == 1) {
-        BOOST_THROW_EXCEPTION(runloop_object_error());
+    if (pollEventHandlers.count(eventHandler->fileDescriptor()) == 1) {
+        BOOST_THROW_EXCEPTION(runloop_event_handler_error());
     }
 
-    object->setParent(shared_from_this());
-    pollObjects[object->fileDescriptor()] = object;
-
-    updatePoll(object, EPOLL_CTL_ADD);
+    eventHandler->parent = shared_from_this();
+    pollEventHandlers[eventHandler->fileDescriptor()] = eventHandler;
+    updatePoll(eventHandler, EPOLL_CTL_ADD);
 }
 
-void RunLoop::remove(const std::shared_ptr<RunLoopObject> &object)
+void RunLoop::remove(const std::shared_ptr<EventHandler> &eventHandler)
 {
-    if (pollObjects.count(object->fileDescriptor()) == 0) {
-        BOOST_THROW_EXCEPTION(runloop_object_error());
+    if (pollEventHandlers.count(eventHandler->fileDescriptor()) == 0) {
+        BOOST_THROW_EXCEPTION(runloop_event_handler_error());
     }
 
-    updatePoll(object, EPOLL_CTL_DEL);
-    pollObjects.erase(object->fileDescriptor());
+    updatePoll(eventHandler, EPOLL_CTL_DEL);
+    pollEventHandlers.erase(eventHandler->fileDescriptor());
+    eventHandler->parent.reset();
 }
 
-void RunLoop::updatePoll(const std::shared_ptr<RunLoopObject> &object, int op)
+void RunLoop::updatePoll(const std::shared_ptr<EventHandler> &eventHandler, int op)
 {
     epoll_event event;
 
-    event.data.fd = object->fileDescriptor();
+    event.data.fd = eventHandler->fileDescriptor();
     event.events = EPOLLONESHOT;
-    event.events|= object->wantToRead() ? EPOLLIN : 0;
-    event.events|= object->wantToWrite() ? EPOLLOUT : 0;
+    event.events|= eventHandler->wantToRead() ? EPOLLIN : 0;
+    event.events|= eventHandler->wantToWrite() ? EPOLLOUT : 0;
 
     if ((epoll_ctl(epollFD, op, event.data.fd, &event)) == -1) {
         BOOST_THROW_EXCEPTION(runloop_epoll_error() << boost::errinfo_errno(errno));
     }
 
-    auto triggerTime = object->wantToWake();
+    auto triggerTime = eventHandler->wantToWake();
 
     if (triggerTime == DISTANT_FUTURE) {
         return;
     }
 
     while (true) {
-        auto i = timerObjects.find(triggerTime);
+        auto i = timerEventHandlers.find(triggerTime);
 
-        if (i == timerObjects.end()) {
-            // Empty entry found, insert the object in the timer list.
-            timerObjects[triggerTime] = object;
+        if (i == timerEventHandlers.end()) {
+            // Empty entry found, insert the eventHandler in the timer list.
+            timerEventHandlers[triggerTime] = eventHandler;
             return;
 
-        } else if (auto otherObject = i->second.lock()) { 
-            if (otherObject == object) {
-                // Found the current object in the timer list.
+        } else if (auto otherEventHandlers = i->second.lock()) { 
+            if (otherEventHandlers == eventHandler) {
+                // Found the current eventHandler in the timer list.
                 return;
             }
         }
@@ -131,24 +108,24 @@ void RunLoop::updatePoll(const std::shared_ptr<RunLoopObject> &object, int op)
 
 int RunLoop::runTimers(void)
 {
-    while (!timerObjects.empty()) {
+    while (!timerEventHandlers.empty()) {
         auto currentTime = app->getTime();
 
-        auto i = timerObjects.begin();
+        auto i = timerEventHandlers.begin();
         auto triggerTime = i->first;
-        auto object = i->second;
+        auto eventHandler = i->second;
 
         if (currentTime < triggerTime) {
             // All triggers are ordered, so we can break early.
             return (triggerTime - currentTime).toMilliseconds();
         }
 
-        if (auto _object = object.lock()) {
-            _object->handleWake(triggerTime, currentTime);
+        if (auto _eventHandler = eventHandler.lock()) {
+            _eventHandler->handleWake(triggerTime, currentTime);
         } else {
-            BOOST_THROW_EXCEPTION(runloop_object_error());
+            BOOST_THROW_EXCEPTION(runloop_event_handler_error());
         }
-        timerObjects.erase(i);
+        timerEventHandlers.erase(i);
     }
 
     return EPOLL_DEFAULT_TIMEOUT;
@@ -159,7 +136,7 @@ void RunLoop::run(void)
     epoll_event events[MAX_EPOLL_EVENTS];
     int nr_events;
 
-    // Find the next nearest timer, and run expired timerObjects.
+    // Find the next nearest timer, and run expired timerEventHandlers.
     auto timeout = runTimers();
 
     if ((nr_events = epoll_wait(epollFD, events, MAX_EPOLL_EVENTS, timeout)) == -1) {
@@ -172,25 +149,25 @@ void RunLoop::run(void)
         }
     }
 
-    // Best resolution for timerObjects is right after the epoll() exists.
+    // Best resolution for timerEventHandlers is right after the epoll() exists.
     runTimers();
 
     // Handle events.
     nr_events = std::min(nr_events, MAX_EPOLL_EVENTS);
     for (auto i = 0; i < nr_events; i++) {
-        auto object = pollObjects[events[i].data.fd];
+        auto eventHandler = pollEventHandlers[events[i].data.fd];
 
         if (events[i].events & EPOLLERR) {
-            object->handleError();
+            eventHandler->handleError();
         }
         if (events[i].events & EPOLLOUT) {
-            object->handleWrite();
+            eventHandler->handleWrite();
         }
         if (events[i].events & EPOLLIN || events[i].events & EPOLLHUP) {
-            object->handleRead();
+            eventHandler->handleRead();
         }
 
-        updatePoll(object, EPOLL_CTL_MOD);
+        updatePoll(eventHandler, EPOLL_CTL_MOD);
     }
 }
 

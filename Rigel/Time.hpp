@@ -19,11 +19,15 @@
 #include <atomic>
 #include <boost/filesystem.hpp>
 #include <x86intrin.h>
+#include <time.h>
+#include <boost/exception/all.hpp>
 
 #include "int_utils.hpp"
 
 namespace Orion {
 namespace Rigel {
+
+struct time_error: virtual boost::exception, virtual std::exception {};
 
 struct TimeCalibration {
     __uint128_t timeAdjust;
@@ -86,7 +90,7 @@ struct Duration {
     }
 };
 
-/** The time in TAI nanoseconds since January 1st of the year 2000.
+/** The time in TAI nanoseconds since January 1st of the year 1970.
  * TAI is used so we do not have to acount for clock drift during
  * days with leap seconds.
  *
@@ -139,8 +143,18 @@ struct Time {
         intrinsic++;
         return *this;
     }
-
 };
+
+static inline Time getSystemTime(void) {
+    struct timespec ts;
+
+    if (clock_gettime(CLOCK_TAI, &ts) == -1) {
+        BOOST_THROW_EXCEPTION(time_error() << boost::errinfo_errno(errno));
+    }
+
+    auto x = static_cast<int64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+    return Time(x);
+}
 
 const Time DISTANT_FUTURE = Time(INT64_MAX);
 const Time DISTANT_PAST = Time(INT64_MIN);
